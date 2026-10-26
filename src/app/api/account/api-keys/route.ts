@@ -31,9 +31,6 @@ import {
   rateLimitResponse,
   RATE_LIMITS,
 } from '@/lib/rate-limit';
-import { getT } from '@/lib/i18n/translate';
-
-const t = getT('Api');
 
 const MAX_NAME_LEN = 80;
 // Hard ceiling on caller-supplied expiry (1 year), mirroring the
@@ -60,7 +57,7 @@ export async function GET() {
     if (error) {
       console.error('[GET /api/account/api-keys] fetch error:', error);
       return NextResponse.json(
-        { error: t('account.apiKeys.loadFailed') },
+        { error: 'Failed to load API keys' },
         { status: 500 }
       );
     }
@@ -90,13 +87,13 @@ export async function POST(request: Request) {
     const rawName = typeof body?.name === 'string' ? body.name.trim() : '';
     if (!rawName) {
       return NextResponse.json(
-        { error: t('account.apiKeys.nameRequired') },
+        { error: "'name' is required" },
         { status: 400 }
       );
     }
     if (rawName.length > MAX_NAME_LEN) {
       return NextResponse.json(
-        { error: t('account.apiKeys.nameTooLong', { max: MAX_NAME_LEN }) },
+        { error: `Name must be ${MAX_NAME_LEN} characters or fewer` },
         { status: 400 }
       );
     }
@@ -106,7 +103,7 @@ export async function POST(request: Request) {
     const scopes = normalizeScopes(body?.scopes ?? []);
     if (scopes === null) {
       return NextResponse.json(
-        { error: t('account.apiKeys.scopesInvalid') },
+        { error: "'scopes' must be an array of known scope strings" },
         { status: 400 }
       );
     }
@@ -143,7 +140,7 @@ export async function POST(request: Request) {
     if (error || !data) {
       console.error('[POST /api/account/api-keys] insert error:', error);
       return NextResponse.json(
-        { error: t('account.apiKeys.createFailed') },
+        { error: 'Failed to create API key' },
         { status: 500 }
       );
     }

@@ -11,9 +11,6 @@ import {
   validateSendMessageParams,
   SendMessageError,
 } from '@/lib/whatsapp/send-message'
-import { getT } from '@/lib/i18n/translate'
-
-const t = getT('Api')
 
 // The dashboard's outbound-send endpoint. It owns auth, per-user rate
 // limiting, and the two ways the UI targets a thread — an existing
@@ -67,7 +64,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            t('send.idsRequired'),
+            'Either conversation_id or contact_id, plus message_type, are required',
         },
         { status: 400 }
       )
@@ -107,7 +104,7 @@ export async function POST(request: Request) {
 
       if (convError || !data) {
         return NextResponse.json(
-          { error: t('common.conversationNotFound') },
+          { error: 'Conversation not found' },
           { status: 404 }
         )
       }
@@ -124,7 +121,7 @@ export async function POST(request: Request) {
 
       if (contactErr || !contactRow) {
         return NextResponse.json(
-          { error: t('send.contactNotFound') },
+          { error: 'Contact not found' },
           { status: 404 }
         )
       }
@@ -137,7 +134,7 @@ export async function POST(request: Request) {
       )
       if (!resolved) {
         return NextResponse.json(
-          { error: t('send.openConversationFailed') },
+          { error: 'Failed to open a conversation for this contact' },
           { status: 500 }
         )
       }
@@ -146,7 +143,7 @@ export async function POST(request: Request) {
 
     if (!conversationId) {
       return NextResponse.json(
-        { error: t('common.conversationNotFound') },
+        { error: 'Conversation not found' },
         { status: 404 }
       )
     }

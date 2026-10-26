@@ -42,7 +42,7 @@ export function SessionsCard() {
       }
       window.location.href = '/login';
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t('unknownError');
+      const msg = err instanceof Error ? err.message : 'Unknown error';
       toast.error(msg);
     } finally {
       setSigningOut(false);

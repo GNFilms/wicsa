@@ -9,7 +9,7 @@ import {
 } from "@/lib/inbox/conversations";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus, Tag } from "@/types";
-import { Search, ChevronDown, X } from "lucide-react";
+import { Search, ChevronDown, X, ShieldCheck } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useAuth } from "@/hooks/use-auth";
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -54,6 +55,7 @@ export function ConversationList({
   resyncToken = 0,
 }: ConversationListProps) {
   const t = useTranslations("Inbox.conversationList");
+  const { user, customRoleName, rolePermissions, isOwner, isAdmin } = useAuth();
   
   const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = useMemo(() => [
     { label: t("filterAll"), value: "all" },
@@ -161,6 +163,29 @@ export function ConversationList({
   const filtered = useMemo(() => {
     let result = conversations;
 
+    // Role-based visibility scoping (e.g. Sales team role with assigned tags / assigned only)
+    if (!isOwner && !isAdmin && rolePermissions && rolePermissions.view_all_conversations === false) {
+      const assignedOnly = rolePermissions.only_assigned_conversations;
+      const assignedTagIds = rolePermissions.assigned_tag_ids ?? [];
+
+      if (assignedOnly && assignedTagIds.length > 0) {
+        // Can see if assigned to user OR has any of the role's assigned tags
+        result = result.filter((c) => {
+          const isAssigned = c.assigned_to === user?.id;
+          const contactTags = (c.contact?.tags ?? []) as Tag[];
+          const hasTag = contactTags.some((t) => assignedTagIds.includes(t.id));
+          return isAssigned || hasTag;
+        });
+      } else if (assignedOnly) {
+        result = result.filter((c) => c.assigned_to === user?.id);
+      } else if (assignedTagIds.length > 0) {
+        result = result.filter((c) => {
+          const contactTags = (c.contact?.tags ?? []) as Tag[];
+          return contactTags.some((t) => assignedTagIds.includes(t.id));
+        });
+      }
+    }
+
     if (filter === "unread") {
       result = result.filter((c) => c.unread_count > 0);
     } else if (filter !== "all") {
@@ -188,7 +213,7 @@ export function ConversationList({
     }
 
     return result;
-  }, [conversations, filter, search, selectedTagIds, selectedCompany]);
+  }, [conversations, filter, search, selectedTagIds, selectedCompany, isOwner, isAdmin, rolePermissions, user?.id]);
 
   const toggleTag = useCallback((id: string) => {
     setSelectedTagIds((prev) =>
@@ -226,6 +251,12 @@ export function ConversationList({
     <div className="flex h-full w-full flex-col border-r border-border bg-card lg:w-80">
       {/* Search + Filter */}
       <div className="space-y-2 border-b border-border p-3">
+        {customRoleName && !isOwner && !isAdmin && rolePermissions?.view_all_conversations === false && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-primary/10 text-primary text-xs font-medium border border-primary/20">
+            <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">Role filter: {customRoleName}</span>
+          </div>
+        )}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input

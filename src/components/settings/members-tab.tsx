@@ -75,6 +75,8 @@ import {
 import { InviteMemberDialog } from './invite-member-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
 import { ROLE_META } from './role-meta';
+import type { CustomRole } from '@/types';
+import { ShieldCheck } from 'lucide-react';
 
 interface Member {
   user_id: string;
@@ -82,12 +84,16 @@ interface Member {
   email: string | null;
   avatar_url: string | null;
   role: AccountRole;
+  custom_role_id?: string | null;
+  custom_role_name?: string | null;
   joined_at: string;
 }
 
 interface Invitation {
   id: string;
   role: 'admin' | 'agent' | 'viewer';
+  custom_role_id?: string | null;
+  custom_role_name?: string | null;
   label: string | null;
   created_at: string;
   expires_at: string;
@@ -100,10 +106,9 @@ const EDITABLE_ROLES: { value: AccountRole }[] = [
   { value: 'viewer' },
 ];
 
-// Per-role chip metadata (icon / label / colour) lives in the shared
-// ROLE_META module so this roster and the Overview identity chip can't
-// drift. The colour scale runs amber (owner — scarce, immutable) →
-// primary (admin) → muted (agent / viewer).
+interface MembersTabProps {
+  onGoToRoles?: () => void;
+}
 
 function fmtDate(iso: string): string {
   // Match the rest of the dashboard's locale-light formatting.
@@ -124,7 +129,7 @@ function fmtExpiresIn(iso: string, t: (key: string, values?: Record<string, stri
   return t('expiresInHours', { hours });
 }
 
-export function MembersTab() {
+export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
   const t = useTranslations('Settings.members');
   const tRoles = useTranslations('Settings.roles');
   const { user, canManageMembers } = useAuth();
@@ -132,6 +137,7 @@ export function MembersTab() {
 
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -142,11 +148,12 @@ export function MembersTab() {
 
   const loadEverything = useCallback(async () => {
     try {
-      const [mres, ires] = await Promise.all([
+      const [mres, ires, rres] = await Promise.all([
         fetch('/api/account/members', { cache: 'no-store' }),
         canManageMembers
           ? fetch('/api/account/invitations', { cache: 'no-store' })
           : Promise.resolve(null),
+        fetch('/api/account/roles', { cache: 'no-store' }),
       ]);
 
       if (!mres.ok) {
@@ -156,6 +163,11 @@ export function MembersTab() {
       }
       const mdata = (await mres.json()) as { members: Member[] };
       setMembers(mdata.members);
+
+      if (rres && rres.ok) {
+        const rdata = await rres.json();
+        setCustomRoles(rdata.roles ?? []);
+      }
 
       if (ires) {
         if (!ires.ok) {
@@ -180,46 +192,78 @@ export function MembersTab() {
     void loadEverything();
   }, [loadEverything]);
 
-  async function handleRoleChange(member: Member, nextRole: AccountRole) {
-    if (member.role === nextRole) return;
-    // Optimistic update — flip the dropdown immediately so the UI
-    // feels snappy. If the server PATCH fails we revert below so
-    // the dropdown doesn't lie about the persisted state.
+  async function handleRoleChange(member: Member, roleValue: string) {
+    const isCustom = roleValue.startsWith('custom:');
+    const customRoleId = isCustom ? roleValue.replace('custom:', '') : null;
+    const pickedCustom = isCustom ? customRoles.find((r) => r.id === customRoleId) : null;
+    const nextRole: AccountRole = isCustom ? 'agent' : (roleValue as AccountRole);
+
+    if (!isCustom && member.role === nextRole && !member.custom_role_id) return;
+    if (isCustom && member.custom_role_id === customRoleId) return;
+
     const previousRole = member.role;
+    const previousCustomId = member.custom_role_id;
+    const previousCustomName = member.custom_role_name;
+
     setPendingMemberAction(member.user_id);
     setMembers((prev) =>
       prev.map((m) =>
-        m.user_id === member.user_id ? { ...m, role: nextRole } : m,
-      ),
+        m.user_id === member.user_id
+          ? {
+              ...m,
+              role: nextRole,
+              custom_role_id: customRoleId,
+              custom_role_name: pickedCustom?.name || null,
+            }
+          : m
+      )
     );
+
     try {
       const res = await fetch(`/api/account/members/${member.user_id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: nextRole }),
+        body: JSON.stringify({
+          role: nextRole,
+          custom_role_id: customRoleId,
+          custom_role_name: pickedCustom?.name || null,
+        }),
       });
       if (!res.ok) {
-        // Revert the optimistic flip. The toast on its own wasn't
-        // enough — the dropdown was left showing the new role
-        // forever, so the next interaction operated on a wrong
-        // baseline (re-trying the same change would no-op via the
-        // `member.role === nextRole` guard at the top).
         setMembers((prev) =>
           prev.map((m) =>
-            m.user_id === member.user_id ? { ...m, role: previousRole } : m,
-          ),
+            m.user_id === member.user_id
+              ? {
+                  ...m,
+                  role: previousRole,
+                  custom_role_id: previousCustomId,
+                  custom_role_name: previousCustomName,
+                }
+              : m
+          )
         );
         const payload = await res.json().catch(() => ({}));
         toast.error(payload.error || t('updateRoleFailed'));
         return;
       }
-      toast.success(t('updatedToast', { name: member.full_name || t('unnamed'), role: tRoles(nextRole) }));
+      toast.success(
+        t('updatedToast', {
+          name: member.full_name || t('unnamed'),
+          role: pickedCustom?.name || tRoles(nextRole),
+        })
+      );
     } catch (err) {
-      // Same revert on network failure.
       setMembers((prev) =>
         prev.map((m) =>
-          m.user_id === member.user_id ? { ...m, role: previousRole } : m,
-        ),
+          m.user_id === member.user_id
+            ? {
+                ...m,
+                role: previousRole,
+                custom_role_id: previousCustomId,
+                custom_role_name: previousCustomName,
+              }
+            : m
+        )
       );
       console.error('[MembersTab] role change error:', err);
       toast.error(t('networkError'));
@@ -287,10 +331,18 @@ export function MembersTab() {
         description={t('description')}
         action={
           <RequireRole min="admin">
-            <Button onClick={() => setInviteOpen(true)}>
-              <Plus className="size-4" />
-              {t('inviteMember')}
-            </Button>
+            <div className="flex items-center gap-2">
+              {onGoToRoles && (
+                <Button variant="outline" onClick={onGoToRoles} className="gap-1.5 border-border">
+                  <ShieldCheck className="size-4 text-primary" />
+                  Role Manager
+                </Button>
+              )}
+              <Button onClick={() => setInviteOpen(true)}>
+                <Plus className="size-4" />
+                {t('inviteMember')}
+              </Button>
+            </div>
           </RequireRole>
         }
       />
@@ -415,36 +467,62 @@ export function MembersTab() {
                         changes go through transfer, which lands later). */}
                     {canManageMembers && !isOwnerRow && !isSelf ? (
                       <Select
-                        value={member.role}
-                        onValueChange={(v) =>
-                          // Base UI Select can emit null on clear. We
-                          // don't expose a clear affordance, so the
-                          // guard is defensive — but the typed
-                          // signature requires it.
-                          v && handleRoleChange(member, v as AccountRole)
-                        }
+                        value={member.custom_role_id ? `custom:${member.custom_role_id}` : member.role}
+                        onValueChange={(v) => v && handleRoleChange(member, v)}
                       >
                         <SelectTrigger
-                          className="w-32 bg-muted border-border text-foreground"
+                          className="w-40 bg-muted border-border text-foreground"
                           disabled={isBusy}
                         >
-                          <SelectValue>{tRoles(member.role)}</SelectValue>
+                          <SelectValue>
+                            {member.custom_role_name || tRoles(member.role)}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
+                          <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                            System Roles
+                          </div>
                           {EDITABLE_ROLES.map((r) => (
                             <SelectItem key={r.value} value={r.value}>
                               {tRoles(r.value)}
                             </SelectItem>
                           ))}
+                          {customRoles.length > 0 && (
+                            <>
+                              <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-t border-border mt-1 pt-1.5">
+                                Custom Roles
+                              </div>
+                              {customRoles.map((cr) => (
+                                <SelectItem key={cr.id} value={`custom:${cr.id}`}>
+                                  <span className="flex items-center gap-1.5">
+                                    <span
+                                      className="h-2 w-2 rounded-full inline-block"
+                                      style={{ backgroundColor: cr.color || '#8b5cf6' }}
+                                    />
+                                    {cr.name}
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </>
+                          )}
                         </SelectContent>
                       </Select>
                     ) : (
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium ${roleMeta.className}`}
-                      >
-                        <RoleIcon className="size-3.5" />
-                        {tRoles(member.role)}
-                      </span>
+                      member.custom_role_name ? (
+                        <span
+                          className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
+                        >
+                          <ShieldCheck className="size-3.5" />
+                          {member.custom_role_name}
+                        </span>
+                      ) : (
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium ${roleMeta.className}`}
+                        >
+                          <RoleIcon className="size-3.5" />
+                          {tRoles(member.role)}
+                        </span>
+                      )
                     )}
 
                     {/* Remove. Admin+ only; never on the owner row;
@@ -564,6 +642,7 @@ export function MembersTab() {
         open={inviteOpen}
         onOpenChange={setInviteOpen}
         onCreated={loadEverything}
+        customRoles={customRoles}
       />
 
       <Dialog

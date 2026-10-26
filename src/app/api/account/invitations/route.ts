@@ -32,9 +32,6 @@ import {
   rateLimitResponse,
   RATE_LIMITS,
 } from "@/lib/rate-limit";
-import { getT } from "@/lib/i18n/translate";
-
-const t = getT("Api");
 
 // Resolve the base URL we publish invite links under.
 //
@@ -146,7 +143,7 @@ export async function GET() {
     const { data, error } = await ctx.supabase
       .from("account_invitations")
       .select(
-        "id, role, label, created_by_user_id, created_at, expires_at, accepted_at, accepted_by_user_id",
+        "id, role, custom_role_id, custom_role_name, label, created_by_user_id, created_at, expires_at, accepted_at, accepted_by_user_id",
       )
       .eq("account_id", ctx.accountId)
       .is("accepted_at", null)
@@ -154,11 +151,24 @@ export async function GET() {
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.error("[GET /api/account/invitations] fetch error:", error);
-      return NextResponse.json(
-        { error: t('account.invitations.loadFailed') },
-        { status: 500 },
-      );
+      // Fallback if custom_role columns not migrated yet
+      const fallback = await ctx.supabase
+        .from("account_invitations")
+        .select(
+          "id, role, label, created_by_user_id, created_at, expires_at, accepted_at, accepted_by_user_id",
+        )
+        .eq("account_id", ctx.accountId)
+        .is("accepted_at", null)
+        .gt("expires_at", new Date().toISOString())
+        .order("created_at", { ascending: false });
+      if (fallback.error) {
+        console.error("[GET /api/account/invitations] fetch error:", fallback.error);
+        return NextResponse.json(
+          { error: "Failed to load invitations" },
+          { status: 500 },
+        );
+      }
+      return NextResponse.json({ invitations: fallback.data ?? [] });
     }
 
     return NextResponse.json({ invitations: data ?? [] });
@@ -171,35 +181,29 @@ export async function POST(request: Request) {
   try {
     const ctx = await requireRole("admin");
 
-    // 30/min per user. The Members tab is a clicks-only UI so any
-    // legitimate admin is far below this; the cap exists to keep
-    // a script run in a loop or a compromised admin session from
-    // flooding `account_invitations` with rows.
     const limit = checkRateLimit(
       `admin:inviteCreate:${ctx.userId}`,
       RATE_LIMITS.adminAction,
     );
     if (!limit.success) return rateLimitResponse(limit);
 
-    const body = (await request.json().catch(() => null)) as
-      | { role?: unknown; expiresInDays?: unknown; label?: unknown }
-      | null;
+    const body = (await request.json().catch(() => null)) as {
+      role?: unknown;
+      custom_role_id?: string | null;
+      custom_role_name?: string | null;
+      expiresInDays?: unknown;
+      label?: unknown;
+    } | null;
 
-    const role = body?.role;
+    const role = body?.role ?? "agent";
     if (!isAccountRole(role) || role === "owner") {
-      // The DB CHECK already rejects 'owner', but failing fast
-      // here gives a clearer 400 than the eventual constraint
-      // violation surfaced as a 500.
       return NextResponse.json(
-        { error: t('account.invitations.roleInvalid') },
+        { error: "'role' must be one of admin, agent, viewer" },
         { status: 400 },
       );
     }
 
     const expiresInDaysRaw = body?.expiresInDays;
-    // `clampExpiryDays` tolerates undefined / NaN / negatives by
-    // collapsing to the safe default, so we just pass the raw
-    // value through after a type narrow.
     const expiresInDays =
       typeof expiresInDaysRaw === "number" ? expiresInDaysRaw : undefined;
     const expiryDays = clampExpiryDays(expiresInDays);
@@ -210,7 +214,7 @@ export async function POST(request: Request) {
       const trimmed = body.label.trim();
       if (trimmed.length > MAX_LABEL_LEN) {
         return NextResponse.json(
-          { error: t('account.invitations.labelTooLong', { max: MAX_LABEL_LEN }) },
+          { error: `Label must be ${MAX_LABEL_LEN} characters or fewer` },
           { status: 400 },
         );
       }
@@ -219,23 +223,27 @@ export async function POST(request: Request) {
 
     const { token, hash } = generateInviteToken();
 
+    const insertPayload: Record<string, unknown> = {
+      account_id: ctx.accountId,
+      token_hash: hash,
+      role,
+      created_by_user_id: ctx.userId,
+      label,
+      expires_at: expiresAt.toISOString(),
+    };
+    if (body?.custom_role_id) insertPayload.custom_role_id = body.custom_role_id;
+    if (body?.custom_role_name) insertPayload.custom_role_name = body.custom_role_name;
+
     const { data, error } = await ctx.supabase
       .from("account_invitations")
-      .insert({
-        account_id: ctx.accountId,
-        token_hash: hash,
-        role,
-        created_by_user_id: ctx.userId,
-        label,
-        expires_at: expiresAt.toISOString(),
-      })
+      .insert(insertPayload)
       .select("id, role, label, expires_at, created_at")
       .single();
 
     if (error || !data) {
       console.error("[POST /api/account/invitations] insert error:", error);
       return NextResponse.json(
-        { error: t('account.invitations.createFailed') },
+        { error: "Failed to create invitation" },
         { status: 500 },
       );
     }

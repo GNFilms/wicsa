@@ -4,7 +4,6 @@ import type {
   AutomationTriggerConfig,
   AutomationTriggerType,
 } from '@/types'
-import { getT } from '@/lib/i18n/translate'
 
 export type TemplateSlug =
   | 'welcome_message'
@@ -29,21 +28,11 @@ export interface AutomationTemplateDefinition {
   steps: TemplateStepSeed[]
 }
 
-const t = getT('StarterAutomations')
-
-/** Comma-separated keyword list from the catalogue → trimmed array. */
-function keywords(key: string): string[] {
-  return t(key)
-    .split(',')
-    .map((k) => k.trim())
-    .filter(Boolean)
-}
-
 export const AUTOMATION_TEMPLATES: Record<TemplateSlug, AutomationTemplateDefinition> = {
   welcome_message: {
     slug: 'welcome_message',
-    name: t('welcome_message.name'),
-    description: t('welcome_message.description'),
+    name: 'Welcome Message',
+    description: 'Auto-reply to first-time contacts with a greeting.',
     // first_inbound_message (added in PR #33) catches both brand-new
     // contacts AND manually-added/imported contacts on their first-ever
     // reply, which is what a user setting up a "welcome" automation
@@ -55,7 +44,7 @@ export const AUTOMATION_TEMPLATES: Record<TemplateSlug, AutomationTemplateDefini
       {
         step_type: 'send_message',
         step_config: {
-          text: t('welcome_message.text'),
+          text: "Hi! 👋 Thanks for reaching out. We'll get back to you shortly.",
         },
       },
       {
@@ -66,8 +55,8 @@ export const AUTOMATION_TEMPLATES: Record<TemplateSlug, AutomationTemplateDefini
   },
   out_of_office: {
     slug: 'out_of_office',
-    name: t('out_of_office.name'),
-    description: t('out_of_office.description'),
+    name: 'Out of Office',
+    description: 'Auto-reply during off-hours so nobody is left waiting.',
     trigger_type: 'new_message_received',
     trigger_config: {},
     steps: [
@@ -81,7 +70,8 @@ export const AUTOMATION_TEMPLATES: Record<TemplateSlug, AutomationTemplateDefini
       {
         step_type: 'send_message',
         step_config: {
-          text: t('out_of_office.text'),
+          text:
+            "Thanks for your message! Our team is offline right now (9am–6pm) and will reply first thing tomorrow.",
         },
         parent_index: 0,
         branch: 'yes',
@@ -90,18 +80,19 @@ export const AUTOMATION_TEMPLATES: Record<TemplateSlug, AutomationTemplateDefini
   },
   lead_qualifier: {
     slug: 'lead_qualifier',
-    name: t('lead_qualifier.name'),
-    description: t('lead_qualifier.description'),
+    name: 'Lead Qualifier',
+    description: 'Ask qualification questions to filter inbound leads.',
     trigger_type: 'keyword_match',
     trigger_config: {
-      keywords: keywords('lead_qualifier.keywords'),
+      keywords: ['pricing', 'quote', 'buy'],
       match_type: 'contains',
     },
     steps: [
       {
         step_type: 'send_message',
         step_config: {
-          text: t('lead_qualifier.text'),
+          text:
+            "Great — happy to help with pricing! Quick question: roughly how many seats are you looking for?",
         },
       },
       {
@@ -116,8 +107,8 @@ export const AUTOMATION_TEMPLATES: Record<TemplateSlug, AutomationTemplateDefini
   },
   follow_up_reminder: {
     slug: 'follow_up_reminder',
-    name: t('follow_up_reminder.name'),
-    description: t('follow_up_reminder.description'),
+    name: 'Follow-up Reminder',
+    description: 'Send a nudge if a contact has not replied within 24 hours.',
     trigger_type: 'new_message_received',
     trigger_config: {},
     steps: [
@@ -128,7 +119,8 @@ export const AUTOMATION_TEMPLATES: Record<TemplateSlug, AutomationTemplateDefini
       {
         step_type: 'send_message',
         step_config: {
-          text: t('follow_up_reminder.text'),
+          text:
+            "Just circling back — did you have any other questions for us? Happy to help!",
         },
       },
     ],

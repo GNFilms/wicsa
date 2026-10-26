@@ -6,13 +6,6 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
-import { useTranslations } from "next-intl"
-
-/** Localised "Close" text for the built-in close buttons. */
-function CloseLabel() {
-  const t = useTranslations("UiPrimitives")
-  return <>{t("close")}</>
-}
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />
@@ -79,9 +72,7 @@ function DialogContent({
           >
             <XIcon
             />
-            <span className="sr-only">
-              <CloseLabel />
-            </span>
+            <span className="sr-only">Close</span>
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Popup>
@@ -119,7 +110,7 @@ function DialogFooter({
       {children}
       {showCloseButton && (
         <DialogPrimitive.Close render={<Button variant="outline" />}>
-          <CloseLabel />
+          Close
         </DialogPrimitive.Close>
       )}
     </div>

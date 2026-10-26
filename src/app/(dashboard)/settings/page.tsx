@@ -17,6 +17,8 @@ import { QuickRepliesManager } from '@/components/settings/quick-replies-manager
 import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel';
 import { DealsSettings } from '@/components/settings/deals-settings';
 import { MembersTab } from '@/components/settings/members-tab';
+import { RoleManager } from '@/components/settings/role-manager';
+import { BrandingPanel } from '@/components/settings/branding-panel';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import {
   resolveSection,
@@ -74,12 +76,14 @@ function SettingsPageInner() {
     profile: <ProfileForm />,
     security: <SecurityPanel />,
     appearance: <AppearancePanel />,
+    branding: <BrandingPanel />,
     whatsapp: <WhatsAppConfig />,
     templates: <TemplateManager />,
     'quick-replies': <QuickRepliesManager />,
     fields: <FieldsAndTagsPanel />,
     deals: <DealsSettings />,
-    members: <MembersTab />,
+    members: <MembersTab onGoToRoles={() => go('roles')} />,
+    roles: <RoleManager onGoToMembers={() => go('members')} />,
     api: <ApiKeysSettings />,
   };
 

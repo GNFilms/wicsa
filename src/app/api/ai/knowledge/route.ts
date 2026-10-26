@@ -8,9 +8,6 @@ import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit
 import { loadEmbeddingsKey } from '@/lib/ai/config'
 import { ingestDocument } from '@/lib/ai/knowledge'
 import { AiError } from '@/lib/ai/types'
-import { getT } from '@/lib/i18n/translate'
-
-const t = getT('Api')
 
 /**
  * GET /api/ai/knowledge
@@ -28,7 +25,7 @@ export async function GET() {
     if (error) {
       console.error('[ai/knowledge GET] error:', error)
       return NextResponse.json(
-        { error: t('ai.knowledge.loadKbFailed') },
+        { error: 'Failed to load knowledge base' },
         { status: 500 },
       )
     }
@@ -55,7 +52,7 @@ export async function POST(request: Request) {
     const content = typeof body?.content === 'string' ? body.content.trim() : ''
     if (!title || !content) {
       return NextResponse.json(
-        { error: t('ai.knowledge.titleContentRequired') },
+        { error: 'title and content are required' },
         { status: 400 },
       )
     }
@@ -68,7 +65,7 @@ export async function POST(request: Request) {
     if (error || !doc) {
       console.error('[ai/knowledge POST] insert error:', error)
       return NextResponse.json(
-        { error: t('ai.knowledge.saveDocFailed') },
+        { error: 'Failed to save document' },
         { status: 500 },
       )
     }
@@ -86,13 +83,13 @@ export async function POST(request: Request) {
         content,
       )
     } catch (err) {
-      const message = err instanceof AiError ? err.message : t('ai.knowledge.indexingFailed')
+      const message = err instanceof AiError ? err.message : 'indexing failed'
       console.error('[ai/knowledge POST] ingest error:', err)
       return NextResponse.json(
         {
           success: true,
           id: doc.id,
-          warning: t('ai.knowledge.savedIndexFailed', { message }),
+          warning: `Saved, but semantic indexing failed (${message}). Lexical search still works; use Reindex to retry.`,
         },
         { status: 200 },
       )
@@ -103,7 +100,7 @@ export async function POST(request: Request) {
         success: true,
         id: doc.id,
         warning:
-          t('ai.knowledge.savedKeywordOnly'),
+          'Saved with keyword search only — your embeddings key could not be decrypted (check ENCRYPTION_KEY, then re-enter the key).',
       })
     }
     return NextResponse.json({ success: true, id: doc.id })

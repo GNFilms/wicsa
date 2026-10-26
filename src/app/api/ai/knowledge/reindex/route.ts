@@ -4,9 +4,6 @@ import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit
 import { loadEmbeddingsKey } from '@/lib/ai/config'
 import { ingestDocument } from '@/lib/ai/knowledge'
 import { AiError } from '@/lib/ai/types'
-import { getT } from '@/lib/i18n/translate'
-
-const t = getT('Api')
 
 /**
  * POST /api/ai/knowledge/reindex  (admin+)
@@ -29,7 +26,7 @@ export async function POST() {
     if (error) {
       console.error('[ai/knowledge/reindex] fetch error:', error)
       return NextResponse.json(
-        { error: t('ai.knowledge.loadDocsFailed') },
+        { error: 'Failed to load documents' },
         { status: 500 },
       )
     }
@@ -47,7 +44,7 @@ export async function POST() {
           success: false,
           reindexed: 0,
           error:
-            t('ai.knowledge.reindexKeyCorrupt'),
+            'Your embeddings key could not be decrypted (check ENCRYPTION_KEY, then re-enter the key in Settings → AI Assistant). Nothing was reindexed.',
         },
         { status: 200 },
       )
@@ -68,7 +65,7 @@ export async function POST() {
             success: false,
             reindexed,
             total: (docs ?? []).length,
-            error: t('ai.knowledge.reindexPartial', { reindexed, message }),
+            error: `Reindexed ${reindexed}, then hit an error: ${message}`,
           },
           { status: 200 },
         )

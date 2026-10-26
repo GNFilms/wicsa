@@ -30,9 +30,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/server";
 import { hasMinRole, isAccountRole, type AccountRole } from "./roles";
-import { getT } from "@/lib/i18n/translate";
-
-const t = getT("LibErrors.auth");
 
 // ------------------------------------------------------------
 // Errors
@@ -43,7 +40,7 @@ const t = getT("LibErrors.auth");
 
 export class UnauthorizedError extends Error {
   readonly status = 401 as const;
-  constructor(message = t("unauthorized")) {
+  constructor(message = "Unauthorized") {
     super(message);
     this.name = "UnauthorizedError";
   }
@@ -51,7 +48,7 @@ export class UnauthorizedError extends Error {
 
 export class ForbiddenError extends Error {
   readonly status = 403 as const;
-  constructor(message = t("forbidden")) {
+  constructor(message = "Forbidden") {
     super(message);
     this.name = "ForbiddenError";
   }
@@ -74,7 +71,7 @@ export function toErrorResponse(err: unknown): NextResponse {
     return NextResponse.json({ error: err.message }, { status: err.status });
   }
   console.error("[toErrorResponse] uncategorized error:", err);
-  return NextResponse.json({ error: t("internal") }, { status: 500 });
+  return NextResponse.json({ error: "Internal server error" }, { status: 500 });
 }
 
 // ------------------------------------------------------------
@@ -125,13 +122,13 @@ export async function getCurrentAccount(): Promise<AccountContext> {
 
   if (error) {
     console.error("[getCurrentAccount] profile fetch error:", error);
-    throw new ForbiddenError(t("loadContext"));
+    throw new ForbiddenError("Could not load account context");
   }
   if (!data || !data.account_id || !data.account_role) {
     // Pre-migration profile, or a manual insert that skipped the
     // signup trigger. The user is authenticated but the app has
     // no way to scope their queries — treat as forbidden.
-    throw new ForbiddenError(t("notLinked"));
+    throw new ForbiddenError("Profile is not linked to an account");
   }
   if (!isAccountRole(data.account_role)) {
     // The DB enum should make this impossible, but a future
@@ -158,12 +155,12 @@ export async function getCurrentAccount(): Promise<AccountContext> {
 
   if (accountErr) {
     console.error("[getCurrentAccount] account fetch error:", accountErr);
-    throw new ForbiddenError(t("loadContext"));
+    throw new ForbiddenError("Could not load account context");
   }
   if (!account) {
     // account_id points at no readable account row — orphaned profile
     // or an RLS gap. Same "can't scope this user" outcome as above.
-    throw new ForbiddenError(t("notLinked"));
+    throw new ForbiddenError("Profile is not linked to an account");
   }
 
   return {
@@ -186,7 +183,7 @@ export async function requireRole(min: AccountRole): Promise<AccountContext> {
   const ctx = await getCurrentAccount();
   if (!hasMinRole(ctx.role, min)) {
     throw new ForbiddenError(
-      t("requiresRole", { min: t(`roleNames.${min}`) }),
+      `This action requires the '${min}' role or higher`,
     );
   }
   return ctx;

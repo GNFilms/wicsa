@@ -10,9 +10,6 @@
  */
 
 import { isBusinessScopedUserId } from './wa-identity'
-import { getT } from '@/lib/i18n/translate'
-
-const ti = getT('Validation.interactive')
 
 const META_API_VERSION = 'v21.0'
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`
@@ -947,23 +944,23 @@ export async function sendInteractiveButtons(
   validateInteractiveHeaderFooter(headerText, footerText)
   if (buttons.length < 1 || buttons.length > INTERACTIVE_LIMITS.maxButtons) {
     throw new Error(
-      ti('buttonCount', { max: INTERACTIVE_LIMITS.maxButtons, got: buttons.length })
+      `Interactive button message requires 1-${INTERACTIVE_LIMITS.maxButtons} buttons (got ${buttons.length}).`
     )
   }
   const seenButtonIds = new Set<string>()
   for (const btn of buttons) {
-    if (!btn.id) throw new Error(ti('buttonMissingId'))
+    if (!btn.id) throw new Error('Interactive button missing id.')
     // Duplicate button ids make the tapped-button webhook ambiguous —
     // Meta rejects them, and the pre-flight validator (interactive.ts)
     // rejects them too, so guard here to keep the two paths in step.
     if (seenButtonIds.has(btn.id)) {
-      throw new Error(ti('duplicateButtonId', { id: btn.id }))
+      throw new Error(`Interactive message has duplicate button id "${btn.id}".`)
     }
     seenButtonIds.add(btn.id)
-    if (!btn.title) throw new Error(ti('buttonMissingTitle', { id: btn.id }))
+    if (!btn.title) throw new Error(`Interactive button "${btn.id}" missing title.`)
     if (btn.title.length > INTERACTIVE_LIMITS.buttonTitleMaxLength) {
       throw new Error(
-        ti('buttonTitleTooLong', { title: btn.title, max: INTERACTIVE_LIMITS.buttonTitleMaxLength })
+        `Interactive button title "${btn.title}" exceeds ${INTERACTIVE_LIMITS.buttonTitleMaxLength} chars.`
       )
     }
   }
@@ -1052,35 +1049,35 @@ export async function sendInteractiveList(
   } = args
   validateInteractiveBody(bodyText)
   validateInteractiveHeaderFooter(headerText, footerText)
-  if (!buttonLabel) throw new Error(ti('listRequiresButtonLabel'))
+  if (!buttonLabel) throw new Error('Interactive list requires a buttonLabel.')
   if (buttonLabel.length > INTERACTIVE_LIMITS.buttonTitleMaxLength) {
     throw new Error(
-      ti('listButtonLabelTooLong', { label: buttonLabel, max: INTERACTIVE_LIMITS.buttonTitleMaxLength })
+      `Interactive list buttonLabel "${buttonLabel}" exceeds ${INTERACTIVE_LIMITS.buttonTitleMaxLength} chars.`
     )
   }
   if (sections.length < 1 || sections.length > INTERACTIVE_LIMITS.maxListSections) {
     throw new Error(
-      ti('listSectionCount', { max: INTERACTIVE_LIMITS.maxListSections, got: sections.length })
+      `Interactive list requires 1-${INTERACTIVE_LIMITS.maxListSections} sections (got ${sections.length}).`
     )
   }
   const totalRows = sections.reduce((sum, s) => sum + s.rows.length, 0)
   if (totalRows < 1 || totalRows > INTERACTIVE_LIMITS.maxListRowsTotal) {
     throw new Error(
-      ti('listRowCount', { max: INTERACTIVE_LIMITS.maxListRowsTotal, got: totalRows })
+      `Interactive list requires 1-${INTERACTIVE_LIMITS.maxListRowsTotal} rows total across all sections (got ${totalRows}).`
     )
   }
   const seenIds = new Set<string>()
   for (const section of sections) {
     for (const row of section.rows) {
-      if (!row.id) throw new Error(ti('listRowMissingId'))
+      if (!row.id) throw new Error('Interactive list row missing id.')
       if (seenIds.has(row.id)) {
-        throw new Error(ti('duplicateRowId', { id: row.id }))
+        throw new Error(`Interactive list has duplicate row id "${row.id}".`)
       }
       seenIds.add(row.id)
-      if (!row.title) throw new Error(ti('listRowMissingTitle', { id: row.id }))
+      if (!row.title) throw new Error(`Interactive list row "${row.id}" missing title.`)
       if (row.title.length > INTERACTIVE_LIMITS.listRowTitleMaxLength) {
         throw new Error(
-          ti('listRowTitleTooLong', { title: row.title, max: INTERACTIVE_LIMITS.listRowTitleMaxLength })
+          `Interactive list row title "${row.title}" exceeds ${INTERACTIVE_LIMITS.listRowTitleMaxLength} chars.`
         )
       }
       if (
@@ -1088,7 +1085,7 @@ export async function sendInteractiveList(
         row.description.length > INTERACTIVE_LIMITS.listRowDescriptionMaxLength
       ) {
         throw new Error(
-          ti('listRowDescriptionTooLong', { id: row.id, max: INTERACTIVE_LIMITS.listRowDescriptionMaxLength })
+          `Interactive list row description for "${row.id}" exceeds ${INTERACTIVE_LIMITS.listRowDescriptionMaxLength} chars.`
         )
       }
     }
@@ -1137,10 +1134,10 @@ export async function sendInteractiveList(
 }
 
 function validateInteractiveBody(bodyText: string): void {
-  if (!bodyText) throw new Error(ti('bodyRequired'))
+  if (!bodyText) throw new Error('Interactive message requires bodyText.')
   if (bodyText.length > INTERACTIVE_LIMITS.bodyMaxLength) {
     throw new Error(
-      ti('bodyTooLong', { max: INTERACTIVE_LIMITS.bodyMaxLength })
+      `Interactive bodyText exceeds ${INTERACTIVE_LIMITS.bodyMaxLength} chars.`
     )
   }
 }
@@ -1151,12 +1148,12 @@ function validateInteractiveHeaderFooter(
 ): void {
   if (headerText && headerText.length > INTERACTIVE_LIMITS.headerTextMaxLength) {
     throw new Error(
-      ti('headerTooLong', { max: INTERACTIVE_LIMITS.headerTextMaxLength })
+      `Interactive headerText exceeds ${INTERACTIVE_LIMITS.headerTextMaxLength} chars.`
     )
   }
   if (footerText && footerText.length > INTERACTIVE_LIMITS.footerMaxLength) {
     throw new Error(
-      ti('footerTooLong', { max: INTERACTIVE_LIMITS.footerMaxLength })
+      `Interactive footerText exceeds ${INTERACTIVE_LIMITS.footerMaxLength} chars.`
     )
   }
 }

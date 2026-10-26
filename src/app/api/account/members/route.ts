@@ -17,9 +17,6 @@ import { NextResponse } from "next/server";
 import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
 import { canManageMembers, isAccountRole } from "@/lib/auth/roles";
 import type { AccountMember } from "@/types";
-import { getT } from "@/lib/i18n/translate";
-
-const t = getT("Api");
 
 interface ProfileRow {
   user_id: string;
@@ -27,6 +24,8 @@ interface ProfileRow {
   email: string | null;
   avatar_url: string | null;
   account_role: string;
+  custom_role_id?: string | null;
+  custom_role_name?: string | null;
   created_at: string;
 }
 
@@ -36,26 +35,33 @@ export async function GET() {
 
     // RLS on profiles allows reading any row whose account matches
     // the caller's, so this query is naturally account-scoped.
-    const { data, error } = await ctx.supabase
+    // Try selecting with custom_role columns, fallback if not migrated yet
+    let data: ProfileRow[] | null = null;
+    const resWithCustom = await ctx.supabase
       .from("profiles")
-      .select("user_id, full_name, email, avatar_url, account_role, created_at")
+      .select("user_id, full_name, email, avatar_url, account_role, custom_role_id, custom_role_name, created_at")
       .eq("account_id", ctx.accountId)
       .order("created_at", { ascending: true });
 
-    if (error) {
-      console.error("[GET /api/account/members] fetch error:", error);
-      return NextResponse.json(
-        { error: t('account.members.loadFailed') },
-        { status: 500 },
-      );
+    if (resWithCustom.error) {
+      // Fallback in case migration 043 hasn't run yet
+      const fallback = await ctx.supabase
+        .from("profiles")
+        .select("user_id, full_name, email, avatar_url, account_role, created_at")
+        .eq("account_id", ctx.accountId)
+        .order("created_at", { ascending: true });
+      if (fallback.error) {
+        console.error("[GET /api/account/members] fetch error:", fallback.error);
+        return NextResponse.json({ error: "Failed to load members" }, { status: 500 });
+      }
+      data = fallback.data as ProfileRow[];
+    } else {
+      data = resWithCustom.data as ProfileRow[];
     }
 
     const canSeeEmails = canManageMembers(ctx.role);
 
-    const members: AccountMember[] = (data as ProfileRow[]).flatMap((row) => {
-      // Defensive: the DB enum should never let an unknown role
-      // through, but if a migration ever broadens the enum without
-      // updating TS, skip the row rather than crash the page.
+    const members: AccountMember[] = (data ?? []).flatMap((row) => {
       if (!isAccountRole(row.account_role)) return [];
       return [
         {
@@ -64,6 +70,8 @@ export async function GET() {
           email: canSeeEmails ? row.email : null,
           avatar_url: row.avatar_url,
           role: row.account_role,
+          custom_role_id: row.custom_role_id || null,
+          custom_role_name: row.custom_role_name || null,
           joined_at: row.created_at,
         },
       ];

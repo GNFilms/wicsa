@@ -298,7 +298,7 @@ export function PipelineSettings({
                             ? "var(--foreground)"
                             : "transparent",
                       }}
-                      aria-label={t("pickColor", { color })}
+                      aria-label={`Pick color ${color}`}
                     />
                   ))}
                 </div>

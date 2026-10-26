@@ -5,9 +5,6 @@ import {
   getSubscribedApps,
   verifyPhoneNumber,
 } from '@/lib/whatsapp/meta-api'
-import { getT } from '@/lib/i18n/translate'
-
-const t = getT('Api')
 
 /**
  * GET /api/whatsapp/config/verify-registration
@@ -38,7 +35,7 @@ export async function GET() {
     error: authError,
   } = await supabase.auth.getUser()
   if (authError || !user) {
-    return NextResponse.json({ error: t('common.unauthorized') }, { status: 401 })
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   // whatsapp_config is one-row-per-account post-017. Resolve the
@@ -54,7 +51,7 @@ export async function GET() {
     return NextResponse.json({
       live: false,
       checks: { config_exists: false },
-      message: t('common.profileNotLinked'),
+      message: 'Your profile is not linked to an account.',
     })
   }
 
@@ -68,7 +65,7 @@ export async function GET() {
     return NextResponse.json({
       live: false,
       checks: { config_exists: false },
-      message: t('whatsappConfig.noConfigShort'),
+      message: 'No WhatsApp configuration saved yet.',
     })
   }
 
@@ -83,7 +80,7 @@ export async function GET() {
         token_decryptable: false,
       },
       message:
-        t('whatsappConfig.tokenUndecryptable'),
+        'Stored access token can\'t be decrypted — likely ENCRYPTION_KEY changed. Re-enter the token to repair.',
     })
   }
 
@@ -111,7 +108,7 @@ export async function GET() {
     checks.phone_metadata_ok = true
   } catch (err) {
     errors.push(
-      t('whatsappConfig.phoneCheckFailed', { message: err instanceof Error ? err.message : String(err) }),
+      `Phone metadata check failed: ${err instanceof Error ? err.message : String(err)}`,
     )
   }
 
@@ -129,17 +126,17 @@ export async function GET() {
       checks.waba_subscribed_to_app = subs.length > 0
       if (!checks.waba_subscribed_to_app) {
         errors.push(
-          t('whatsappConfig.wabaNoApps'),
+          'WABA has no subscribed apps. Re-save the configuration to subscribe.',
         )
       }
     } catch (err) {
       errors.push(
-        t('whatsappConfig.wabaCheckFailed', { message: err instanceof Error ? err.message : String(err) }),
+        `WABA subscription check failed: ${err instanceof Error ? err.message : String(err)}`,
       )
     }
   } else {
     errors.push(
-      t('whatsappConfig.noWabaId'),
+      'No WABA ID on file — webhooks can\'t be wired without it. Add it in the form and re-save.',
     )
   }
 

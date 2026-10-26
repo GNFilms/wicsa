@@ -21,9 +21,6 @@
  */
 
 import { NextResponse } from 'next/server';
-import { getT } from '@/lib/i18n/translate';
-
-const t = getT('LibErrors');
 
 export interface RateLimitOptions {
   /** Max requests allowed in `windowMs`. */
@@ -100,7 +97,7 @@ export function rateLimitResponse(result: RateLimitResult): NextResponse {
   const retryAfterSec = Math.max(1, Math.ceil((result.reset - Date.now()) / 1000));
   return NextResponse.json(
     {
-      error: t('rateLimitExceeded'),
+      error: 'Rate limit exceeded',
       retry_after_seconds: retryAfterSec,
     },
     {

@@ -38,8 +38,9 @@ import {
 } from '@/components/ui/select';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
+import type { CustomRole } from '@/types';
 
-type InviteRole = 'admin' | 'agent' | 'viewer';
+type InviteRole = 'admin' | 'agent' | 'viewer' | string;
 
 interface InviteMemberDialogProps {
   open: boolean;
@@ -47,6 +48,7 @@ interface InviteMemberDialogProps {
   /** Called after a successful create so the parent re-fetches the
    *  pending-invitations list. */
   onCreated: () => void;
+  customRoles?: CustomRole[];
 }
 
 const EXPIRY_OPTIONS = [
@@ -62,7 +64,8 @@ const MAX_LABEL_LEN = 80;
 
 interface CreatedInvite {
   url: string;
-  role: InviteRole;
+  role: string;
+  roleName?: string;
   expiresInDays: number;
   /** Snapshotted at creation time so a later account rename can't
    *  retroactively change the wa.me message text on the result step. */
@@ -73,18 +76,19 @@ export function InviteMemberDialog({
   open,
   onOpenChange,
   onCreated,
+  customRoles = [],
 }: InviteMemberDialogProps) {
   const t = useTranslations('Settings.invite');
   const tRoles = useTranslations('Settings.roles');
   const { account } = useAuth();
-  const [role, setRole] = useState<InviteRole>('agent');
+  const [selectedRole, setSelectedRole] = useState<string>('agent');
   const [expiry, setExpiry] = useState<string>('7');
   const [label, setLabel] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<CreatedInvite | null>(null);
 
   function reset() {
-    setRole('agent');
+    setSelectedRole('agent');
     setExpiry('7');
     setLabel('');
     setResult(null);
@@ -92,12 +96,6 @@ export function InviteMemberDialog({
   }
 
   async function handleCreate() {
-    // Mirror the server's max-length check so we don't ship an
-    // obviously-too-long label across the wire just to bounce off
-    // a 400. The Input also has a `maxLength={MAX_LABEL_LEN}` cap
-    // but a paste can land an over-limit string into state before
-    // the limit kicks in on the next keystroke — this is the safety
-    // net for that path.
     const trimmedLabel = label.trim();
     if (trimmedLabel.length > MAX_LABEL_LEN) {
       toast.error(t('labelTooLong', { max: MAX_LABEL_LEN }));
@@ -105,11 +103,21 @@ export function InviteMemberDialog({
     }
     setSubmitting(true);
     try {
+      const isCustom = selectedRole.startsWith('custom:');
+      const customRoleId = isCustom ? selectedRole.replace('custom:', '') : null;
+      const pickedCustom = isCustom
+        ? customRoles.find((r) => r.id === customRoleId)
+        : null;
+
+      const baseRole = isCustom ? 'agent' : selectedRole;
+
       const res = await fetch('/api/account/invitations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          role,
+          role: baseRole,
+          custom_role_id: customRoleId,
+          custom_role_name: pickedCustom?.name || undefined,
           expiresInDays: Number(expiry),
           label: trimmedLabel || undefined,
         }),
@@ -117,7 +125,7 @@ export function InviteMemberDialog({
 
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        toast.error(payload.error || t('createFailed'));
+        toast.error(payload.error || 'Failed to create invitation');
         return;
       }
 
@@ -128,13 +136,9 @@ export function InviteMemberDialog({
 
       setResult({
         url: data.url,
-        role,
+        role: baseRole,
+        roleName: pickedCustom?.name || baseRole,
         expiresInDays: data.expiresInDays,
-        // Snapshot the account name into the result so the wa.me
-        // share message has team context. Falls back to a generic
-        // string if `account` hasn't loaded yet (shouldn't happen
-        // — the dialog requires admin+ which requires a loaded
-        // profile — but stay safe).
         accountName: account?.name ?? t('fallbackAccountName'),
       });
       onCreated();
@@ -270,20 +274,45 @@ export function InviteMemberDialog({
               <div className="space-y-2">
                 <Label className="text-muted-foreground">{t('roleLabel')}</Label>
                 <Select
-                  value={role}
-                  onValueChange={(v) => v && setRole(v as InviteRole)}
+                  value={selectedRole}
+                  onValueChange={(v) => v && setSelectedRole(v)}
                 >
                   <SelectTrigger className="w-full bg-muted border-border text-foreground">
-                    <SelectValue>{tRoles(role)}</SelectValue>
+                    <SelectValue>
+                      {selectedRole.startsWith('custom:')
+                        ? customRoles.find((r) => r.id === selectedRole.replace('custom:', ''))?.name || 'Custom Role'
+                        : tRoles(selectedRole as 'admin' | 'agent' | 'viewer')}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="admin">{tRoles('admin')}</SelectItem>
                     <SelectItem value="agent">{tRoles('agent')}</SelectItem>
                     <SelectItem value="viewer">{tRoles('viewer')}</SelectItem>
+                    {customRoles.length > 0 && (
+                      <>
+                        <div className="px-2 py-1.5 text-[11px] font-semibold text-muted-foreground border-t border-border mt-1">
+                          Custom Roles
+                        </div>
+                        {customRoles.map((cr) => (
+                          <SelectItem key={cr.id} value={`custom:${cr.id}`}>
+                            <span className="flex items-center gap-1.5">
+                              <span
+                                className="h-2 w-2 rounded-full inline-block"
+                                style={{ backgroundColor: cr.color || '#8b5cf6' }}
+                              />
+                              {cr.name}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </>
+                    )}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  {tRoles(`${role}Hint` as 'adminHint' | 'agentHint' | 'viewerHint')}
+                  {selectedRole.startsWith('custom:')
+                    ? customRoles.find((r) => r.id === selectedRole.replace('custom:', ''))?.description ||
+                      'Custom permissions with assigned leads & tags'
+                    : tRoles(`${selectedRole}Hint` as 'adminHint' | 'agentHint' | 'viewerHint')}
                 </p>
               </div>
 

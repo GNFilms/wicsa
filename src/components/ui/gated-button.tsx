@@ -46,7 +46,6 @@
 // ============================================================
 
 import type { ComponentProps, ReactNode } from "react";
-import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -56,10 +55,10 @@ interface GatedButtonProps extends Omit<ComponentProps<typeof Button>, "title"> 
    *  "Read-only" tooltip. Defaults to `true` so a `<GatedButton>`
    *  without the prop is just a Button. */
   canAct?: boolean;
-  /** Already-translated verb phrase that completes the sentence
-   *  `"Read-only — your role can't <gateReason>"` (see the
-   *  `GatedButton.reasons.*` messages). Provided per-call so each
-   *  CTA can name what it does ("create flows", "send messages"). */
+  /** Verb phrase that completes the sentence
+   *  `"Read-only — your role can't <gateReason>"`. Provided
+   *  per-call so each CTA can name what it does ("create flows",
+   *  "send messages", "add contacts"). */
   gateReason?: string;
   /** Optional fallback title for the non-gated case. */
   title?: string;
@@ -75,10 +74,9 @@ export function GatedButton({
   children,
   ...rest
 }: GatedButtonProps) {
-  const t = useTranslations("GatedButton");
   const effectivelyDisabled = disabled || !canAct;
   const tooltip = !canAct && gateReason
-    ? t("readOnly", { action: gateReason })
+    ? `Read-only — your role can't ${gateReason}`
     : title;
 
   return (

@@ -1,10 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import { NextIntlClientProvider } from 'next-intl';
-import { getLocale, getMessages, getTranslations } from 'next-intl/server';
+import { getLocale, getMessages } from 'next-intl/server';
 import { Inter } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { ThemeProvider } from "@/hooks/use-theme";
+import { BrandingProvider } from "@/hooks/use-branding";
 import { ThemedToaster } from "@/components/themed-toaster";
 import {
   DEFAULT_MODE,
@@ -20,19 +21,12 @@ const inter = Inter({
   subsets: ["latin"],
 });
 
-export async function generateMetadata(): Promise<Metadata> {
-  const t = await getTranslations("Metadata");
-  return {
-    ...metadata,
-    description: t("description"),
-  };
-}
-
-const metadata: Metadata = {
+export const metadata: Metadata = {
   title: {
     default: "wacrm",
     template: "%s — wacrm",
   },
+  description: "Self-hostable CRM template for WhatsApp.",
   robots: {
     index: false,
     follow: false,
@@ -117,8 +111,10 @@ export default async function RootLayout({
       <body className="min-h-full bg-background text-foreground font-sans">
         <NextIntlClientProvider messages={messages} locale={locale}>
           <ThemeProvider>
-            {children}
-            <ThemedToaster />
+            <BrandingProvider>
+              {children}
+              <ThemedToaster />
+            </BrandingProvider>
           </ThemeProvider>
         </NextIntlClientProvider>
       </body>

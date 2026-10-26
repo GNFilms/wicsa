@@ -32,9 +32,6 @@
 
 import type { MessageTemplate, TemplateButton } from '@/types';
 import { extractVariableIndices } from './template-validators';
-import { getT } from '@/lib/i18n/translate';
-
-const t = getT('Validation.templates');
 
 export interface SendTimeParams {
   /** Values for body {{1}}, {{2}}, … indexed by variable position. */
@@ -88,7 +85,7 @@ function buildHeaderComponent(
     const value = params.headerText;
     if (!value || !value.trim()) {
       throw new Error(
-        t('headerTextValueRequired', { var: '{{1}}' }),
+        'Header text variable {{1}} requires a value — pass headerText.',
       );
     }
     return {
@@ -110,7 +107,7 @@ function buildHeaderComponent(
   const id = params.headerMediaId;
   if (!link && !id) {
     throw new Error(
-      t('mediaHeaderSendSource', { type: headerType }),
+      `${headerType} header requires a media link or id at send time — set header_media_url on the template or pass headerMediaUrl/headerMediaId.`,
     );
   }
   const mediaPayload: { link?: string; id?: string } = id ? { id } : { link };
@@ -135,7 +132,7 @@ function buildBodyComponent(
   if (varCount === 0 && body.length === 0) return null;
   if (body.length < varCount) {
     throw new Error(
-      t('bodyValuesMissing', { count: varCount, got: body.length }),
+      `Body has ${varCount} variable(s) but only ${body.length} value(s) were supplied.`,
     );
   }
   // Trim to the variable count — extra values are dropped silently so
@@ -178,7 +175,7 @@ function buildButtonComponent(
       // the button's index in the template's buttons array.
       if (!override || !override.trim()) {
         throw new Error(
-          t('urlButtonParamRequired', { n: index + 1, var: '{{1}}', index }),
+          `URL button #${index + 1} uses {{1}} — requires a buttonParams[${index}] value.`,
         );
       }
       return {

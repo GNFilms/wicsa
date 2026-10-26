@@ -21,9 +21,6 @@ import {
   rateLimitResponse,
   RATE_LIMITS,
 } from "@/lib/rate-limit";
-import { getT } from "@/lib/i18n/translate";
-
-const t = getT("Api");
 
 export async function DELETE(
   _request: Request,
@@ -54,7 +51,7 @@ export async function DELETE(
     if (error) {
       console.error("[DELETE /api/account/invitations/[id]] error:", error);
       return NextResponse.json(
-        { error: t('account.invitations.revokeFailed') },
+        { error: "Failed to revoke invitation" },
         { status: 500 },
       );
     }
@@ -64,7 +61,7 @@ export async function DELETE(
       // account). 404 either way — surfacing "exists but not
       // yours" would leak existence.
       return NextResponse.json(
-        { error: t('account.invitations.notFound') },
+        { error: "Invitation not found" },
         { status: 404 },
       );
     }

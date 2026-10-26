@@ -21,6 +21,8 @@ import {
   type AccountRole,
 } from "@/lib/auth/roles";
 
+import type { CustomRole, RolePermissions } from "@/types";
+
 interface Profile {
   id: string;
   full_name: string | null;
@@ -35,6 +37,9 @@ interface Profile {
   beta_features: string[];
   account_id: string | null;
   account_role: AccountRole | null;
+  custom_role_id?: string | null;
+  custom_role_name?: string | null;
+  customRole?: CustomRole | null;
 }
 
 interface AccountSummary {
@@ -110,6 +115,9 @@ interface AuthContextValue {
   accountId: string | null;
   /** Role within that account. Null while loading. */
   accountRole: AccountRole | null;
+  customRole: CustomRole | null;
+  customRoleName: string | null;
+  rolePermissions: RolePermissions | null;
   /** Lightweight account meta — id + name + default_currency. Null while loading. */
   account: AccountSummary | null;
   /** Account default deal currency. Falls back to DEFAULT_CURRENCY
@@ -152,6 +160,8 @@ interface ProfileRow {
   beta_features: string[] | null;
   account_id: string | null;
   account_role: string | null;
+  custom_role_id?: string | null;
+  custom_role_name?: string | null;
 }
 
 /**
@@ -163,24 +173,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [account, setAccount] = useState<AccountSummary | null>(null);
+  const [customRole, setCustomRole] = useState<CustomRole | null>(null);
   const [loading, setLoading] = useState(true);
-  // Why the account/role couldn't be established, when it couldn't.
-  // Null on the happy path.
   const [statusDetail, setStatusDetail] = useState<string | null>(null);
-  // Tracked separately from `loading`. The session settles fast (one
-  // local cookie read); the profile fetch crosses the network and
-  // settles later. Callers that gate on `profile.*` need to know which
-  // window they're in — see the type doc above.
   const [profileLoading, setProfileLoading] = useState(true);
 
-  // Tracks the user ID we've successfully initiated/completed fetching
-  // a profile for. This prevents redundant re-fetches and toggling
-  // profileLoading back to true on window focus events/token refresh.
   const lastFetchedUserIdRef = useRef<string | null>(null);
 
-  // Shared across init, auth-state-change listener, and the exposed
-  // refreshProfile() callback. Reads the current session's user id and
-  // pulls the matching profile row along with its account summary.
   const fetchProfile = useCallback(async (userId: string) => {
     const supabase = createClient();
     setProfileLoading(true);
@@ -189,16 +188,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       let data: ProfileRow | null = null;
       for (let attempt = 1; ; attempt++) {
-        const result = await supabase
+        // Try selecting with custom_role columns
+        let result = await supabase
           .from("profiles")
           .select(
-            "id, full_name, email, avatar_url, role, beta_features, account_id, account_role",
+            "id, full_name, email, avatar_url, role, beta_features, account_id, account_role, custom_role_id, custom_role_name",
           )
           .eq("user_id", userId)
           .maybeSingle();
 
+        if (result.error && result.error.code === "42703") {
+          // Column doesn't exist yet, retry without custom columns
+          result = await supabase
+            .from("profiles")
+            .select(
+              "id, full_name, email, avatar_url, role, beta_features, account_id, account_role",
+            )
+            .eq("user_id", userId)
+            .maybeSingle();
+        }
+
         if (!result.error) {
-          data = result.data;
+          data = result.data as ProfileRow;
           break;
         }
 
@@ -209,10 +220,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           hint: error.hint,
           code: error.code,
         });
-        // One hiccup here used to lock the session read-only for good:
-        // the profile stayed null, so every `useCan` gate answered
-        // false and no page offered a way to recover (issue #471).
-        // Retry, then hand the reason to the UI.
+
         if (attempt < PROFILE_FETCH_ATTEMPTS) {
           await sleep(PROFILE_FETCH_RETRY_MS);
           continue;
@@ -267,6 +275,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ? data.account_role
           : null;
 
+        let customRoleRow: CustomRole | null = null;
+        if (data.custom_role_id) {
+          try {
+            const { data: roleData, error: roleErr } = await supabase
+              .from("custom_roles")
+              .select("*")
+              .eq("id", data.custom_role_id)
+              .maybeSingle();
+            if (!roleErr && roleData) {
+              customRoleRow = roleData as CustomRole;
+            }
+          } catch (e) {
+            console.error("[AuthProvider] fetchCustomRole error:", e);
+          }
+        }
+        setCustomRole(customRoleRow);
+
         setProfile({
           id: data.id,
           full_name: data.full_name,
@@ -280,6 +305,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           beta_features: data.beta_features ?? [],
           account_id: data.account_id ?? null,
           account_role: accountRole,
+          custom_role_id: data.custom_role_id ?? null,
+          custom_role_name: data.custom_role_name ?? null,
+          customRole: customRoleRow,
         });
         setAccount(accountRow);
         if (!data.account_id || !accountRole) {
@@ -386,6 +414,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setProfile(null);
     setAccount(null);
+    setCustomRole(null);
     window.location.href = "/login";
   }, []);
 
@@ -400,18 +429,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // dependencies downstream.
   const derived = useMemo(() => {
     const role = profile?.account_role ?? null;
+    const isOwner = role === "owner";
+    const isAdmin = role === "admin";
+    const isAgent = role === "agent";
+    const isViewer = role === "viewer";
+    const perms = customRole?.permissions;
+
     return {
       accountRole: role,
+      customRole,
+      customRoleName: profile?.custom_role_name ?? customRole?.name ?? null,
+      rolePermissions: perms ?? null,
       accountId: profile?.account_id ?? null,
-      isOwner: role === "owner",
-      isAdmin: role === "admin",
-      isAgent: role === "agent",
-      isViewer: role === "viewer",
-      canManageMembers: role ? canManageMembersFor(role) : false,
-      canEditSettings: role ? canEditSettingsFor(role) : false,
-      canSendMessages: role ? canSendMessagesFor(role) : false,
+      isOwner,
+      isAdmin,
+      isAgent,
+      isViewer,
+      canManageMembers: isOwner || isAdmin || Boolean(perms?.can_manage_team_members),
+      canEditSettings: isOwner || isAdmin || Boolean(perms?.can_edit_settings),
+      canSendMessages: isOwner || isAdmin || Boolean(perms?.can_send_messages) || isAgent,
     };
-  }, [profile?.account_role, profile?.account_id]);
+  }, [profile?.account_role, profile?.account_id, profile?.custom_role_name, customRole]);
 
   // Signed out is not a broken account — the shell redirects to /login
   // before anything reads this.
@@ -474,6 +512,9 @@ export function useAuth(): AuthContextValue {
       accountStatusDetail: null,
       accountId: null,
       accountRole: null,
+      customRole: null,
+      customRoleName: null,
+      rolePermissions: null,
       isOwner: false,
       isAdmin: false,
       isAgent: false,

@@ -10,6 +10,32 @@ export type {
   InteractiveListSection,
 } from "@/lib/whatsapp/interactive";
 
+export interface RolePermissions {
+  view_all_conversations?: boolean;
+  only_assigned_conversations?: boolean;
+  assigned_tag_ids?: string[];
+  can_view_contacts?: boolean;
+  can_edit_contacts?: boolean;
+  can_send_messages?: boolean;
+  can_access_pipelines?: boolean;
+  can_access_broadcasts?: boolean;
+  can_access_automations?: boolean;
+  can_access_flows?: boolean;
+  can_access_ai_agents?: boolean;
+  can_access_settings?: boolean;
+}
+
+export interface CustomRole {
+  id: string;
+  account_id: string;
+  name: string;
+  description?: string | null;
+  color?: string | null;
+  permissions: RolePermissions;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Profile {
   id: string;
   user_id: string;
@@ -45,6 +71,9 @@ export interface Profile {
    * `@/lib/auth/roles` rather than comparing this string directly.
    */
   account_role?: AccountRole;
+  custom_role_id?: string | null;
+  custom_role_name?: string | null;
+  custom_role?: CustomRole | null;
   created_at: string;
 }
 
@@ -74,6 +103,9 @@ export interface AccountMember {
   email: string | null;
   avatar_url: string | null;
   role: AccountRole;
+  custom_role_id?: string | null;
+  custom_role_name?: string | null;
+  custom_role?: CustomRole | null;
   joined_at: string;
 }
 
@@ -88,12 +120,53 @@ export interface AccountInvitation {
   account_id: string;
   /** Roles offered via invite — owner is never offered. */
   role: Exclude<AccountRole, "owner">;
+  custom_role_id?: string | null;
+  custom_role_name?: string | null;
   created_by_user_id: string | null;
   label: string | null;
   created_at: string;
   expires_at: string;
   accepted_at: string | null;
   accepted_by_user_id: string | null;
+}
+
+export interface AccountBranding {
+  id?: string;
+  account_id: string;
+  platform_name: string;
+  logo_url: string | null;
+  favicon_url: string | null;
+  primary_color: string;
+  settings?: {
+    mode?: 'light' | 'dark';
+    sidebar_theme?: string;
+    border_radius?: string;
+    [key: string]: unknown;
+  };
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type TaskStatus = 'assigned' | 'upcoming' | 'overdue' | 'mentioned' | 'completed' | 'others';
+
+export interface Task {
+  id: string;
+  account_id: string;
+  title: string;
+  category?: string;
+  description?: string | null;
+  contact_id?: string | null;
+  conversation_id?: string | null;
+  assigned_to_user_id?: string | null;
+  created_by_user_id?: string | null;
+  due_date?: string | null;
+  priority: TaskPriority;
+  status: TaskStatus;
+  created_at: string;
+  updated_at: string;
+  contact?: Contact | null;
+  assignee?: Profile | null;
 }
 
 export interface Contact {
@@ -548,17 +621,9 @@ export interface SendMessageStepConfig {
  * `send_buttons` / `send_list` step configs carry the full interactive
  * payload (same shape stored on messages + quick replies). `kind` is
  * implied by the step_type but kept on the payload for a uniform shape.
- *
- * `wait_for_reply` parks the run after the send until the contact's
- * next inbound message, which then becomes `message_text` for the
- * steps after it (migration 045). Not part of the Meta payload — the
- * send path picks payload fields explicitly, so it never reaches Meta.
  */
-export interface InteractiveStepOptions {
-  wait_for_reply?: boolean;
-}
-export type SendButtonsStepConfig = InteractiveMessagePayload & InteractiveStepOptions;
-export type SendListStepConfig = InteractiveMessagePayload & InteractiveStepOptions;
+export type SendButtonsStepConfig = InteractiveMessagePayload;
+export type SendListStepConfig = InteractiveMessagePayload;
 
 export interface SendTemplateStepConfig {
   template_name: string;
