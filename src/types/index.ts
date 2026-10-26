@@ -23,6 +23,8 @@ export interface RolePermissions {
   can_access_flows?: boolean;
   can_access_ai_agents?: boolean;
   can_access_settings?: boolean;
+  can_manage_team_members?: boolean;
+  can_edit_settings?: boolean;
 }
 
 export interface CustomRole {

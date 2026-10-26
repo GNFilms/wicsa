@@ -171,13 +171,13 @@ export function ConversationList({
       if (assignedOnly && assignedTagIds.length > 0) {
         // Can see if assigned to user OR has any of the role's assigned tags
         result = result.filter((c) => {
-          const isAssigned = c.assigned_to === user?.id;
+          const isAssigned = c.assigned_agent_id === user?.id;
           const contactTags = (c.contact?.tags ?? []) as Tag[];
           const hasTag = contactTags.some((t) => assignedTagIds.includes(t.id));
           return isAssigned || hasTag;
         });
       } else if (assignedOnly) {
-        result = result.filter((c) => c.assigned_to === user?.id);
+        result = result.filter((c) => c.assigned_agent_id === user?.id);
       } else if (assignedTagIds.length > 0) {
         result = result.filter((c) => {
           const contactTags = (c.contact?.tags ?? []) as Tag[];

@@ -285,12 +285,14 @@ export function DashboardAlertsSection() {
         <div className="flex items-center gap-2">
           {/* New Task Dialog Trigger */}
           <Dialog open={newTaskOpen} onOpenChange={setNewTaskOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" className="h-8 gap-1.5 bg-primary text-xs font-medium hover:bg-primary/90">
-                <Plus className="h-3.5 w-3.5" />
-                New Task
-              </Button>
-            </DialogTrigger>
+            <DialogTrigger
+              render={
+                <Button size="sm" className="h-8 gap-1.5 bg-primary text-xs font-medium hover:bg-primary/90">
+                  <Plus className="h-3.5 w-3.5" />
+                  New Task
+                </Button>
+              }
+            />
             <DialogContent className="sm:max-w-[425px]">
               <DialogHeader>
                 <DialogTitle>Create New Task</DialogTitle>
@@ -373,16 +375,18 @@ export function DashboardAlertsSection() {
 
           {/* Configure Tabs Button */}
           <Dialog open={configOpen} onOpenChange={setConfigOpen}>
-            <DialogTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground border-border"
-              >
-                <Settings className="h-3.5 w-3.5" />
-                Configure Tabs
-              </Button>
-            </DialogTrigger>
+            <DialogTrigger
+              render={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground border-border"
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                  Configure Tabs
+                </Button>
+              }
+            />
             <DialogContent className="sm:max-w-[360px]">
               <DialogHeader>
                 <DialogTitle>Configure Dashboard Tabs</DialogTitle>

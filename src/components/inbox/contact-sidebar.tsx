@@ -581,15 +581,11 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
 
               {/* + Add Tag Popover */}
               <Popover open={tagPopoverOpen} onOpenChange={setTagPopoverOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-[11px] text-primary hover:bg-primary/10 gap-1 font-medium"
-                  >
-                    <Plus className="h-3 w-3" />
-                    Add Tag
-                  </Button>
+                <PopoverTrigger
+                  className="inline-flex items-center justify-center rounded-md font-medium h-6 px-2 text-[11px] text-primary hover:bg-primary/10 gap-1 transition-colors cursor-pointer"
+                >
+                  <Plus className="h-3 w-3" />
+                  Add Tag
                 </PopoverTrigger>
                 <PopoverContent className="w-64 p-3 bg-card border border-border shadow-lg" align="end">
                   <div className="space-y-2.5">
