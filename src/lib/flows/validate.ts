@@ -430,6 +430,14 @@ function validateNode(
           field: "button_label",
           message: "Send-list needs a button label (the tap-to-expand text).",
         });
+      } else if (cfg.button_label.length > INTERACTIVE_LIMITS.buttonTitleMaxLength) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "button_label",
+          message: `Send-list button label exceeds ${INTERACTIVE_LIMITS.buttonTitleMaxLength} characters (WhatsApp limit).`,
+        });
       }
       const sections = cfg.sections ?? [];
       const totalRows = sections.reduce(
@@ -456,6 +464,15 @@ function validateNode(
       }
       const seenIds = new Set<string>();
       sections.forEach((section, si) => {
+        if (section.title && section.title.length > 24) {
+          issues.push({
+            severity: "error",
+            scope: "node",
+            node_key: node.node_key,
+            field: `sections.${si}.title`,
+            message: `Section ${si + 1} title exceeds 24 characters (WhatsApp limit).`,
+          });
+        }
         const rows = section.rows ?? [];
         rows.forEach((row, ri) => {
           const field = `sections.${si}.rows.${ri}`;

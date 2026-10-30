@@ -27,6 +27,7 @@ import {
   RefreshCw,
   PanelRightOpen,
   PanelRightClose,
+  UploadCloud,
 } from "lucide-react";
 import { format, isToday, isYesterday, differenceInHours } from "date-fns";
 import { useTranslations } from "next-intl";
@@ -230,6 +231,47 @@ export function MessageThread({
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Thread-level drag & drop for quick sample uploads
+  const [threadDroppedFiles, setThreadDroppedFiles] = useState<File[] | null>(null);
+  const [threadDragging, setThreadDragging] = useState(false);
+  const threadDragCounter = useRef(0);
+
+  const handleThreadDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    threadDragCounter.current += 1;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setThreadDragging(true);
+    }
+  }, []);
+
+  const handleThreadDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    threadDragCounter.current -= 1;
+    if (threadDragCounter.current <= 0) {
+      setThreadDragging(false);
+      threadDragCounter.current = 0;
+    }
+  }, []);
+
+  const handleThreadDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+    setThreadDragging(true);
+  }, []);
+
+  const handleThreadDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setThreadDragging(false);
+    threadDragCounter.current = 0;
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      setThreadDroppedFiles(Array.from(e.dataTransfer.files));
+    }
   }, []);
 
   // 24-hour session timer
@@ -468,7 +510,7 @@ export function MessageThread({
     async (text: string, replyToId?: string) => {
       if (!conversation) return;
 
-      const tempId = `temp-${Date.now()}`;
+      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
       // Optimistic update — shows the message immediately with "sending" status
       const optimisticMsg: Message = {
@@ -533,7 +575,7 @@ export function MessageThread({
           ? payload.caption || payload.filename || "Document"
           : payload.caption;
 
-      const tempId = `temp-${Date.now()}`;
+      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       const optimisticMsg: Message = {
         id: tempId,
         conversation_id: conversation.id,
@@ -591,7 +633,7 @@ export function MessageThread({
     async (payload: InteractiveMessagePayload, replyToId?: string) => {
       if (!conversation) return;
 
-      const tempId = `temp-${Date.now()}`;
+      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       // Optimistic bubble — renders the buttons/list immediately via the
       // interactive_payload, same as the persisted row will.
       const optimisticMsg: Message = {
@@ -671,7 +713,7 @@ export function MessageThread({
       if (!conversation) return;
 
       const renderedBody = renderTemplateBody(template.body_text, values.body);
-      const tempId = `temp-${Date.now()}`;
+      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
       const optimisticMsg: Message = {
         id: tempId,
@@ -901,7 +943,29 @@ export function MessageThread({
     // clipped and the hover toolbar overlaps the Tags panel. Letting the
     // root shrink lets the bubbles' break-words / max-w caps apply.
     // Issue #257.
-    <div className={cn("flex min-w-0 flex-1 flex-col", DOODLE_BG_CLASSES)}>
+    <div
+      className={cn("relative flex min-w-0 flex-1 flex-col", DOODLE_BG_CLASSES)}
+      onDragEnter={handleThreadDragEnter}
+      onDragOver={handleThreadDragOver}
+      onDragLeave={handleThreadDragLeave}
+      onDrop={handleThreadDrop}
+    >
+      {/* Thread Drag & Drop Overlay */}
+      {threadDragging && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-background/90 backdrop-blur-sm border-2 border-dashed border-primary p-8 text-center animate-in fade-in duration-150 pointer-events-none">
+          <div className="rounded-full bg-primary/10 p-4 text-primary">
+            <UploadCloud className="size-10 animate-bounce" />
+          </div>
+          <div>
+            <h4 className="text-base font-semibold text-foreground">
+              Drop samples here to upload
+            </h4>
+            <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+              Upload multiple images, videos, audio, or documents at once (up to 100 MB each)
+            </p>
+          </div>
+        </div>
+      )}
       {/* Header — solid card surface sits on top of the doodle so the
           name/avatar/dropdowns stay legible. */}
       <div className="flex items-center justify-between gap-2 border-b border-border bg-card px-3 py-3 sm:px-4">
@@ -1186,6 +1250,8 @@ export function MessageThread({
         onOpenTemplates={handleOpenTemplates}
         replyTo={replyTo}
         onClearReply={() => setReplyTo(null)}
+        droppedFiles={threadDroppedFiles}
+        onClearDroppedFiles={() => setThreadDroppedFiles(null)}
       />
 
       <TemplatePicker

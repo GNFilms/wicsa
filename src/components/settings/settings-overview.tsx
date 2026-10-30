@@ -217,6 +217,11 @@ export function SettingsOverview({
       loading: false,
       subtitle: t('appearance', { mode: cap(mode), theme: themeName }),
     },
+    {
+      section: 'update',
+      loading: false,
+      subtitle: 'Upload update.zip or install new features',
+    },
   ];
 
   return (

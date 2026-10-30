@@ -31,6 +31,9 @@ import {
   Plus,
   Trash2,
   UsersRound,
+  UserPlus,
+  Kanban,
+  Tag,
 } from 'lucide-react';
 
 import {
@@ -73,6 +76,7 @@ import {
   PresenceDot,
 } from '@/components/presence/presence-dot';
 import { InviteMemberDialog } from './invite-member-dialog';
+import { CreateMemberDialog } from './create-member-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
 import { ROLE_META } from './role-meta';
 import type { CustomRole } from '@/types';
@@ -86,6 +90,11 @@ interface Member {
   role: AccountRole;
   custom_role_id?: string | null;
   custom_role_name?: string | null;
+  pipeline_id?: string | null;
+  pipeline_name?: string | null;
+  stage_id?: string | null;
+  stage_name?: string | null;
+  label?: string | null;
   joined_at: string;
 }
 
@@ -141,6 +150,7 @@ export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
   const [loading, setLoading] = useState(true);
 
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [createMemberOpen, setCreateMemberOpen] = useState(false);
   const [removingMember, setRemovingMember] = useState<Member | null>(null);
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
     null,
@@ -338,9 +348,13 @@ export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
                   Role Manager
                 </Button>
               )}
-              <Button onClick={() => setInviteOpen(true)}>
-                <Plus className="size-4" />
-                {t('inviteMember')}
+              <Button variant="outline" onClick={() => setInviteOpen(true)} className="gap-1.5 border-border">
+                <Mail className="size-4" />
+                Invite Link
+              </Button>
+              <Button onClick={() => setCreateMemberOpen(true)} className="gap-1.5">
+                <UserPlus className="size-4" />
+                Create Member
               </Button>
             </div>
           </RequireRole>
@@ -447,6 +461,25 @@ export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
                         <p className="truncate text-xs text-muted-foreground">
                           {member.email}
                         </p>
+                      )}
+                      {(member.pipeline_name || member.stage_name || member.label) && (
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          {member.pipeline_name && (
+                            <span className="inline-flex items-center gap-1 rounded bg-muted/80 px-1.5 py-0.5 text-[10px] text-muted-foreground border border-border/60">
+                              <Kanban className="size-2.5 text-primary" />
+                              {member.pipeline_name}
+                              {member.stage_name && (
+                                <span className="text-foreground font-medium">› {member.stage_name}</span>
+                              )}
+                            </span>
+                          )}
+                          {member.label && (
+                            <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary border border-primary/20 font-medium">
+                              <Tag className="size-2.5" />
+                              {member.label}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -637,6 +670,13 @@ export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
           )}
         </div>
       </RequireRole>
+
+      <CreateMemberDialog
+        open={createMemberOpen}
+        onOpenChange={setCreateMemberOpen}
+        onCreated={loadEverything}
+        customRoles={customRoles}
+      />
 
       <InviteMemberDialog
         open={inviteOpen}

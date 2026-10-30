@@ -22,6 +22,8 @@ import {
   Plus,
   MessageSquareDashed,
   Zap,
+  UploadCloud,
+  Music,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GatedButton } from "@/components/ui/gated-button";
@@ -100,12 +102,22 @@ const PICKER_ACCEPT: Record<"image" | "video" | "document", string> = {
     "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain",
 };
 
+export function inferMediaKind(file: File): ComposerMediaKind {
+  const type = file.type.toLowerCase();
+  if (type.startsWith("image/")) return "image";
+  if (type.startsWith("video/")) return "video";
+  if (type.startsWith("audio/")) return "audio";
+  return "document";
+}
+
 interface MediaDraft {
+  id: string;
   kind: ComposerMediaKind;
   mediaUrl: string;
   /** Storage path — used to GC the object if the draft is discarded. */
   path: string;
   filename: string;
+  size?: number;
   caption: string;
 }
 
@@ -118,6 +130,8 @@ interface MessageComposerProps {
   onOpenTemplates: () => void;
   replyTo?: ReplyDraft | null;
   onClearReply?: () => void;
+  droppedFiles?: File[] | null;
+  onClearDroppedFiles?: () => void;
 }
 
 function formatDuration(seconds: number): string {
@@ -140,6 +154,8 @@ export function MessageComposer({
   onOpenTemplates,
   replyTo,
   onClearReply,
+  droppedFiles,
+  onClearDroppedFiles,
 }: MessageComposerProps) {
   const t = useTranslations("Inbox.composer");
 
@@ -155,25 +171,35 @@ export function MessageComposer({
   const [savingQuickReply, setSavingQuickReply] = useState(false);
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
 
-  // Media attachment state. `draft` holds an uploaded-but-not-yet-sent
-  // attachment; `busy` covers the upload/transcode window.
-  const [draft, setDraft] = useState<MediaDraft | null>(null);
+  // Multi-media attachments state. `drafts` holds multiple uploaded samples; `busy` covers upload window.
+  const [drafts, setDrafts] = useState<MediaDraft[]>([]);
+  const [batchCaption, setBatchCaption] = useState("");
   const [busy, setBusy] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounter = useRef(0);
+
+  const allFilesInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
-  // Mirror of `draft` for the unmount cleanup, which can't read render
-  // state. Kept in sync below so navigating away with a staged-but-unsent
-  // attachment GCs the orphaned object.
-  const draftRef = useRef<MediaDraft | null>(null);
+
+  const draftsRef = useRef<MediaDraft[]>([]);
   useEffect(() => {
-    draftRef.current = draft;
-  }, [draft]);
+    draftsRef.current = drafts;
+  }, [drafts]);
 
   // Best-effort GC of a staged object the user never sent. Fire-and-forget.
   const removeStaged = useCallback((path: string | undefined) => {
     if (!path) return;
     void deleteAccountMedia(CHAT_MEDIA_BUCKET, path).catch(() => {});
+  }, []);
+
+  const removeAllStaged = useCallback((list: MediaDraft[]) => {
+    for (const d of list) {
+      if (d.path) {
+        void deleteAccountMedia(CHAT_MEDIA_BUCKET, d.path).catch(() => {});
+      }
+    }
   }, []);
 
   // Voice recording state. The recorder encodes Ogg/Opus in-browser
@@ -208,9 +234,9 @@ export function MessageComposer({
       cancelledRef.current = true;
       // stop() releases the mic stream + audio context inside opus-recorder.
       void recorderRef.current?.stop().catch(() => {});
-      removeStaged(draftRef.current?.path);
+      removeAllStaged(draftsRef.current);
     };
-  }, [clearTimer, removeStaged]);
+  }, [clearTimer, removeAllStaged]);
 
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current;
@@ -381,41 +407,110 @@ export function MessageComposer({
     [openInteractiveBuilder, adjustHeight],
   );
 
-  // Upload a captured file to chat-media and stage it as a draft.
-  const stageUpload = useCallback(
-    async (kind: ComposerMediaKind, file: File) => {
-      // Per-kind ceiling mirrors Meta's caps (image 5 MB, etc.) so we
-      // reject before upload rather than orphaning an object that Meta
-      // would then refuse at send.
-      const max = MEDIA_MAX_BYTES_BY_KIND[kind];
-      if (file.size > max) {
-        toast.error(
-          `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — ${kind} limit is ${Math.round(
-            max / 1024 / 1024,
-          )} MB.`,
-        );
-        return;
-      }
+  // Upload captured files to chat-media and stage them as drafts.
+  const stageUploads = useCallback(
+    async (files: File[]) => {
+      if (!files.length) return;
       setBusy(true);
-      try {
-        const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
-        // Replacing an existing draft? GC the previous object first.
-        removeStaged(draftRef.current?.path);
-        setDraft({ kind, mediaUrl: publicUrl, path, filename: file.name, caption: "" });
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Upload failed.");
-      } finally {
-        setBusy(false);
+      const newDrafts: MediaDraft[] = [];
+
+      for (const file of files) {
+        const kind = inferMediaKind(file);
+        const max = MEDIA_MAX_BYTES_BY_KIND[kind];
+        if (file.size > max) {
+          toast.error(
+            `"${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)} MB — limit is ${Math.round(
+              max / 1024 / 1024,
+            )} MB.`,
+          );
+          continue;
+        }
+
+        try {
+          const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
+          newDrafts.push({
+            id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            kind,
+            mediaUrl: publicUrl,
+            path,
+            filename: file.name,
+            size: file.size,
+            caption: "",
+          });
+        } catch (err) {
+          toast.error(
+            `Failed to upload "${file.name}": ${err instanceof Error ? err.message : "Upload error"}`,
+          );
+        }
+      }
+
+      if (newDrafts.length > 0) {
+        setDrafts((prev) => [...prev, ...newDrafts]);
+        if (newDrafts.length > 1) {
+          toast.success(`Added ${newDrafts.length} samples to queue`);
+        }
+      }
+      setBusy(false);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (droppedFiles && droppedFiles.length > 0) {
+      void stageUploads(droppedFiles);
+      onClearDroppedFiles?.();
+    }
+  }, [droppedFiles, onClearDroppedFiles, stageUploads]);
+
+  // Drag and Drop handlers on the composer
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current += 1;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0) {
+      setIsDragging(false);
+      dragCounter.current = 0;
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+    setIsDragging(true);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+      dragCounter.current = 0;
+
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        const files = Array.from(e.dataTransfer.files);
+        void stageUploads(files);
       }
     },
-    [removeStaged],
+    [stageUploads],
   );
 
   const handlePicked = useCallback(
-    (kind: "image" | "video" | "document", file: File | undefined) => {
-      if (file) void stageUpload(kind, file);
+    (fileList: FileList | null) => {
+      if (fileList && fileList.length > 0) {
+        void stageUploads(Array.from(fileList));
+      }
     },
-    [stageUpload],
+    [stageUploads],
   );
 
   // ---- Voice recording (client-side Ogg/Opus, no server transcode) ---
@@ -424,12 +519,10 @@ export function MessageComposer({
   // draft. WhatsApp renders Ogg/Opus as a playable voice note.
   const finalizeRecording = useCallback(
     async (bytes: Uint8Array) => {
-      // Uint8Array is a valid BlobPart at runtime; the cast sidesteps the
-      // lib.dom ArrayBufferLike-vs-ArrayBuffer generic mismatch.
       const file = new File([bytes as unknown as BlobPart], `voice-${Date.now()}.ogg`, {
         type: "audio/ogg",
       });
-      if (file.size === 0) return; // cancelled / empty take
+      if (file.size === 0) return;
       if (file.size > MEDIA_MAX_BYTES_BY_KIND.audio) {
         toast.error(t("recordingTooLong"));
         return;
@@ -437,15 +530,23 @@ export function MessageComposer({
       setBusy(true);
       try {
         const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
-        removeStaged(draftRef.current?.path);
-        setDraft({ kind: "audio", mediaUrl: publicUrl, path, filename: file.name, caption: "" });
+        const newDraft: MediaDraft = {
+          id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          kind: "audio",
+          mediaUrl: publicUrl,
+          path,
+          filename: file.name,
+          size: file.size,
+          caption: "",
+        };
+        setDrafts((prev) => [...prev, newDraft]);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Upload failed.");
       } finally {
         setBusy(false);
       }
     },
-    [removeStaged, t],
+    [t],
   );
 
   const startRecording = useCallback(async () => {
@@ -455,8 +556,6 @@ export function MessageComposer({
       return;
     }
     try {
-      // Lazy-load the encoder (≈400 KB worker) only when the user records,
-      // keeping it out of the main bundle.
       const { default: Recorder } = await import("opus-recorder");
       const recorder = new Recorder({
         encoderPath: OPUS_ENCODER_PATH,
@@ -503,40 +602,83 @@ export function MessageComposer({
     }
   }, [recording, recordSeconds, stopRecording]);
 
-  // ---- Draft send / discard -----------------------------------------
+  // ---- Drafts send / discard -----------------------------------------
 
-  const sendDraft = useCallback(() => {
-    if (!draft || busy) return;
-    onSendMedia({
-      kind: draft.kind,
-      mediaUrl: draft.mediaUrl,
-      path: draft.path,
-      // Audio takes no caption (Meta rejects it). Everything else: the
-      // trimmed caption, or undefined when blank.
-      caption:
-        draft.kind === "audio" ? undefined : draft.caption.trim() || undefined,
-      filename: draft.kind === "document" ? draft.filename : undefined,
-      replyToId: replyTo?.id,
-    });
-    // The object is now owned by the sent message — clear without GC.
-    setDraft(null);
-    onClearReply?.();
-  }, [draft, busy, onSendMedia, replyTo?.id, onClearReply]);
+  const removeSingleDraft = useCallback(
+    (id: string) => {
+      setDrafts((prev) => {
+        const target = prev.find((d) => d.id === id);
+        if (target) removeStaged(target.path);
+        return prev.filter((d) => d.id !== id);
+      });
+    },
+    [removeStaged],
+  );
 
-  // Discard GCs the staged object — it was uploaded but never sent.
-  const discardDraft = useCallback(() => {
-    removeStaged(draft?.path);
-    setDraft(null);
-  }, [draft?.path, removeStaged]);
+  const discardAllDrafts = useCallback(() => {
+    removeAllStaged(draftsRef.current);
+    setDrafts([]);
+    setBatchCaption("");
+  }, [removeAllStaged]);
 
-  const setCaption = useCallback((caption: string) => {
-    setDraft((d) => (d ? { ...d, caption } : d));
-  }, []);
+  const sendAllDrafts = useCallback(async () => {
+    if (drafts.length === 0 || busy) return;
+    setBusy(true);
+    const toSend = [...drafts];
+    const captionToSend = batchCaption.trim();
+
+    try {
+      for (let i = 0; i < toSend.length; i++) {
+        const d = toSend[i];
+        onSendMedia({
+          kind: d.kind,
+          mediaUrl: d.mediaUrl,
+          path: d.path,
+          caption: i === 0 ? captionToSend || undefined : undefined,
+          filename: d.kind === "document" ? d.filename : undefined,
+          replyToId: i === 0 ? replyTo?.id : undefined,
+        });
+
+        if (i < toSend.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+      }
+
+      setDrafts([]);
+      setBatchCaption("");
+      onClearReply?.();
+    } finally {
+      setBusy(false);
+    }
+  }, [drafts, busy, batchCaption, onSendMedia, replyTo?.id, onClearReply]);
 
   // ---- Render --------------------------------------------------------
 
   return (
-    <div className="border-t border-border bg-card p-3">
+    <div
+      className="relative border-t border-border bg-card p-3"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag & drop overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-primary bg-background/95 backdrop-blur-sm p-6 text-center animate-in fade-in duration-150">
+          <div className="rounded-full bg-primary/10 p-3 text-primary">
+            <UploadCloud className="size-8 animate-bounce" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-foreground">
+              Drop samples here to upload
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Select multiple images, videos, audio, or documents at once (up to 100 MB each)
+            </p>
+          </div>
+        </div>
+      )}
+
       {replyTo && (
         <div className="mb-2">
           <ReplyQuote
@@ -563,46 +705,63 @@ export function MessageComposer({
         </div>
       )}
 
-      {/* Hidden file inputs driven by the attach menu. */}
+      {/* Hidden file inputs with multiple selection enabled */}
+      <input
+        ref={allFilesInputRef}
+        type="file"
+        multiple
+        accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip"
+        className="hidden"
+        onChange={(e) => {
+          handlePicked(e.target.files);
+          e.target.value = "";
+        }}
+      />
       <input
         ref={imageInputRef}
         type="file"
-        accept={PICKER_ACCEPT.image}
+        multiple
+        accept="image/*"
         className="hidden"
         onChange={(e) => {
-          handlePicked("image", e.target.files?.[0]);
+          handlePicked(e.target.files);
           e.target.value = "";
         }}
       />
       <input
         ref={videoInputRef}
         type="file"
-        accept={PICKER_ACCEPT.video}
+        multiple
+        accept="video/*"
         className="hidden"
         onChange={(e) => {
-          handlePicked("video", e.target.files?.[0]);
+          handlePicked(e.target.files);
           e.target.value = "";
         }}
       />
       <input
         ref={documentInputRef}
         type="file"
+        multiple
         accept={PICKER_ACCEPT.document}
         className="hidden"
         onChange={(e) => {
-          handlePicked("document", e.target.files?.[0]);
+          handlePicked(e.target.files);
           e.target.value = "";
         }}
       />
 
-      {draft ? (
-        <MediaDraftPreview
-          draft={draft}
+      {drafts.length > 0 ? (
+        <MediaDraftsPreview
+          drafts={drafts}
           busy={busy}
           readOnly={readOnly}
-          onCaptionChange={setCaption}
-          onDiscard={discardDraft}
-          onSend={sendDraft}
+          caption={batchCaption}
+          onCaptionChange={setBatchCaption}
+          onRemoveDraft={removeSingleDraft}
+          onDiscardAll={discardAllDrafts}
+          onSendAll={sendAllDrafts}
+          onAddMore={() => allFilesInputRef.current?.click()}
           t={t}
         />
       ) : recording ? (
@@ -630,7 +789,7 @@ export function MessageComposer({
         </div>
       ) : (
         <div className="flex items-end gap-2">
-          {/* Attach menu — photo / video / document / voice. */}
+          {/* Attach menu — multiple photos / videos / documents / audio / voice */}
           <DropdownMenu>
             <DropdownMenuTrigger
               disabled={inputsDisabled || busy}
@@ -650,17 +809,21 @@ export function MessageComposer({
               )}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="border-border bg-popover">
+              <DropdownMenuItem onClick={() => allFilesInputRef.current?.click()} className="font-semibold text-primary">
+                <UploadCloud className="mr-2 h-4 w-4" />
+                Select Multiple Files / Samples
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => imageInputRef.current?.click()}>
                 <ImageIcon className="mr-2 h-4 w-4" />
-                {t("photo")}
+                Photos (Multiple)
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => videoInputRef.current?.click()}>
                 <Video className="mr-2 h-4 w-4" />
-                {t("video")}
+                Videos (Multiple)
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => documentInputRef.current?.click()}>
                 <FileText className="mr-2 h-4 w-4" />
-                {t("document")}
+                Documents (Multiple)
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void startRecording()}>
                 <Mic className="mr-2 h-4 w-4" />
@@ -740,9 +903,6 @@ export function MessageComposer({
             }
             disabled={sessionExpired || readOnly}
             rows={1}
-            // Textarea keeps its own inline title — the GatedButton
-            // wrapping pattern doesn't apply to non-button inputs.
-            // The placeholder text also surfaces the read-only state.
             title={readOnly ? t("readOnlyTitle") : undefined}
             className={cn(
               "flex-1 resize-none rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50",
@@ -764,11 +924,10 @@ export function MessageComposer({
       )}
 
       {/* Hint sits outside the flex row so its height doesn't push
-          `items-end` buttons below the textarea. Indented to line up
-          under the textarea left edge. */}
-      {!draft && !recording && (
+          `items-end` buttons below the textarea. */}
+      {drafts.length === 0 && !recording && (
         <p className="mt-1 pl-[5.5rem] text-[10px] text-muted-foreground">
-          {t("draftHint")}
+          {t("draftHint")} · Drag &amp; drop files anywhere to upload samples (up to 100 MB)
         </p>
       )}
 
@@ -816,91 +975,143 @@ export function MessageComposer({
 }
 
 /**
- * Staged-attachment preview with caption + send/discard. Declared at
- * module scope (not nested in MessageComposer) so React keeps it mounted
- * across the parent's re-renders — a nested component would remount the
- * caption input on every keystroke and drop focus.
+ * Multi-attachment staged preview with thumbnails, batch caption, individual remove, and send all.
  */
-function MediaDraftPreview({
-  draft,
+function MediaDraftsPreview({
+  drafts,
   busy,
   readOnly,
+  caption,
   onCaptionChange,
-  onDiscard,
-  onSend,
+  onRemoveDraft,
+  onDiscardAll,
+  onSendAll,
+  onAddMore,
   t,
 }: {
-  draft: MediaDraft;
+  drafts: MediaDraft[];
   busy: boolean;
   readOnly: boolean;
+  caption: string;
   onCaptionChange: (caption: string) => void;
-  onDiscard: () => void;
-  onSend: () => void;
+  onRemoveDraft: (id: string) => void;
+  onDiscardAll: () => void;
+  onSendAll: () => void;
+  onAddMore: () => void;
   t: ReturnType<typeof useTranslations>;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-muted/40 p-3">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          {draft.kind === "image" && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={draft.mediaUrl}
-              alt={draft.filename}
-              className="max-h-40 rounded-lg object-cover"
-            />
-          )}
-          {draft.kind === "video" && (
-            <video src={draft.mediaUrl} controls className="max-h-40 rounded-lg" />
-          )}
-          {draft.kind === "audio" && (
-            <audio src={draft.mediaUrl} controls className="w-full" />
-          )}
-          {draft.kind === "document" && (
-            <div className="flex items-center gap-2 text-sm text-foreground">
-              <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
-              <span className="truncate">{draft.filename}</span>
-            </div>
-          )}
+    <div className="rounded-xl border border-border bg-muted/40 p-3 space-y-3">
+      {/* Header bar */}
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span className="font-semibold text-foreground flex items-center gap-1.5">
+          <UploadCloud className="size-4 text-primary" />
+          {drafts.length === 1 ? "1 sample ready to send" : `${drafts.length} samples ready to send`}
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onAddMore}
+            disabled={busy}
+            className="text-primary hover:underline flex items-center gap-1 font-medium text-xs disabled:opacity-50"
+          >
+            <Plus className="size-3.5" />
+            Add More
+          </button>
+          <span className="text-border">|</span>
+          <button
+            type="button"
+            onClick={onDiscardAll}
+            disabled={busy}
+            className="text-muted-foreground hover:text-red-400 text-xs transition-colors disabled:opacity-50"
+          >
+            Discard All
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onDiscard}
-          aria-label={t("removeAttachment")}
-          className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <X className="h-4 w-4" />
-        </button>
       </div>
 
-      <div className="mt-2 flex items-end gap-2">
-        {draft.kind !== "audio" && (
-          <input
-            value={draft.caption}
-            maxLength={MEDIA_CAPTION_MAX}
-            onChange={(e) => onCaptionChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                onSend();
-              }
-            }}
-            placeholder={t("addCaption")}
-            className="flex-1 rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50"
-          />
-        )}
+      {/* Grid of staged files */}
+      <div className="flex flex-wrap gap-2 max-h-56 overflow-y-auto pr-1">
+        {drafts.map((d) => (
+          <div
+            key={d.id}
+            className="group relative flex items-center gap-2 rounded-lg border border-border bg-card p-2 pr-7 text-xs shadow-sm max-w-[240px] flex-1 min-w-[180px]"
+          >
+            {d.kind === "image" ? (
+              <img
+                src={d.mediaUrl}
+                alt={d.filename}
+                className="size-11 rounded object-cover border border-border/40 shrink-0"
+              />
+            ) : d.kind === "video" ? (
+              <div className="size-11 rounded bg-muted flex items-center justify-center shrink-0 border border-border/40">
+                <Video className="size-5 text-primary" />
+              </div>
+            ) : d.kind === "audio" ? (
+              <div className="size-11 rounded bg-muted flex items-center justify-center shrink-0 border border-border/40">
+                <Music className="size-5 text-primary" />
+              </div>
+            ) : (
+              <div className="size-11 rounded bg-muted flex items-center justify-center shrink-0 border border-border/40">
+                <FileText className="size-5 text-primary" />
+              </div>
+            )}
+
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium text-foreground text-[11px]" title={d.filename}>
+                {d.filename}
+              </p>
+              {d.size ? (
+                <p className="text-[10px] text-muted-foreground">
+                  {(d.size / 1024 / 1024).toFixed(1)} MB
+                </p>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => onRemoveDraft(d.id)}
+              disabled={busy}
+              className="absolute right-1.5 top-1.5 rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              title="Remove this sample"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Caption & Send bar */}
+      <div className="flex items-end gap-2 pt-1 border-t border-border/40">
+        <input
+          value={caption}
+          maxLength={MEDIA_CAPTION_MAX}
+          onChange={(e) => onCaptionChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              onSendAll();
+            }
+          }}
+          placeholder="Add an optional message / caption... (Enter to send)"
+          className="flex-1 rounded-xl border border-border bg-muted px-4 py-2 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50"
+        />
         <GatedButton
           size="sm"
           canAct={!readOnly}
           gateReason="send messages"
-          disabled={busy}
-          onClick={onSend}
-          className={cn(
-            "h-9 w-9 shrink-0 bg-primary p-0 hover:bg-primary/90 disabled:opacity-40",
-            draft.kind === "audio" && "ml-auto",
-          )}
+          disabled={busy || drafts.length === 0}
+          onClick={onSendAll}
+          className="h-9 px-3.5 bg-primary hover:bg-primary/90 text-primary-foreground font-medium gap-1.5 shrink-0"
         >
-          <Send className="h-4 w-4" />
+          {busy ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <>
+              <Send className="size-4" />
+              Send {drafts.length > 1 ? `(${drafts.length})` : ""}
+            </>
+          )}
         </GatedButton>
       </div>
     </div>

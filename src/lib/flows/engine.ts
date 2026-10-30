@@ -90,6 +90,62 @@ export function matchReplyId(
 }
 
 /**
+ * Match a text reply against a send_buttons or send_list node.
+ * Supports:
+ * - 1-based index (e.g. "1", "2")
+ * - exact or case-insensitive match on button/row title
+ * - exact or case-insensitive match on button/row reply_id
+ */
+export function matchTextToInteractiveNode(
+  node: { node_type: string; config: Record<string, unknown> },
+  rawText: string,
+): string | null {
+  const clean = rawText.trim().toLowerCase();
+  if (!clean) return null;
+
+  if (node.node_type === "send_buttons") {
+    const cfg = node.config as unknown as SendButtonsNodeConfig;
+    const buttons = cfg.buttons ?? [];
+    const num = parseInt(clean, 10);
+    if (!isNaN(num) && num >= 1 && num <= buttons.length) {
+      return buttons[num - 1].next_node_key || null;
+    }
+    for (const b of buttons) {
+      if (
+        b.reply_id.toLowerCase() === clean ||
+        b.title.trim().toLowerCase() === clean
+      ) {
+        return b.next_node_key || null;
+      }
+    }
+    return null;
+  }
+
+  if (node.node_type === "send_list") {
+    const cfg = node.config as unknown as SendListNodeConfig;
+    let flatIndex = 1;
+    const num = parseInt(clean, 10);
+    for (const section of cfg.sections ?? []) {
+      for (const row of section.rows ?? []) {
+        if (!isNaN(num) && num === flatIndex) {
+          return row.next_node_key || null;
+        }
+        flatIndex++;
+        if (
+          row.reply_id.toLowerCase() === clean ||
+          row.title.trim().toLowerCase() === clean
+        ) {
+          return row.next_node_key || null;
+        }
+      }
+    }
+    return null;
+  }
+
+  return null;
+}
+
+/**
  * Case-insensitive contains/exact match against a list of keywords.
  * Used by the trigger evaluator. Stable enough that the v3 builder
  * UI can preview matches by passing canned strings.
@@ -438,26 +494,79 @@ async function sendListAndSuspend(
   node: FlowNodeRow,
 ): Promise<{ outcome: "advanced"; node_key: string }> {
   const cfg = node.config as unknown as SendListNodeConfig;
-  // See sendButtonsAndSuspend — interpolate every visible string,
-  // never the row `reply_id`.
-  const { whatsapp_message_id } = await engineSendInteractiveList({
-    accountId: run.account_id,
-    userId: run.user_id,
-    conversationId: run.conversation_id!,
-    contactId: run.contact_id!,
-    bodyText: interpolateVars(cfg.text, run.vars),
-    buttonLabel: interpolateVars(cfg.button_label, run.vars),
-    headerText: interpolateOptionalVars(cfg.header_text, run.vars),
-    footerText: interpolateOptionalVars(cfg.footer_text, run.vars),
-    sections: cfg.sections.map((s) => ({
-      title: interpolateOptionalVars(s.title, run.vars),
-      rows: s.rows.map((r) => ({
-        id: r.reply_id,
-        title: interpolateVars(r.title, run.vars),
-        description: interpolateOptionalVars(r.description, run.vars),
-      })),
-    })),
+  const rawButtonLabel = interpolateVars(cfg.button_label, run.vars)?.trim();
+  const buttonLabel = (rawButtonLabel || "View options").slice(0, 20);
+  const rawBodyText = interpolateVars(cfg.text, run.vars)?.trim();
+  const bodyText = rawBodyText || "Please choose an option:";
+  const headerText = interpolateOptionalVars(cfg.header_text, run.vars);
+  const footerText = interpolateOptionalVars(cfg.footer_text, run.vars);
+  const sections = (cfg.sections ?? []).map((s, sIdx) => {
+    const rawTitle = interpolateOptionalVars(s.title, run.vars)?.trim();
+    return {
+      title: (rawTitle || (cfg.sections.length === 1 ? "Options" : `Section ${sIdx + 1}`)).slice(0, 24),
+      rows: (s.rows ?? []).map((r, rIdx) => {
+        const rawTitle = interpolateVars(r.title, run.vars)?.trim() || `Option ${rIdx + 1}`;
+        const rawDesc = interpolateOptionalVars(r.description, run.vars)?.trim();
+        return {
+          id: r.reply_id || `row_${sIdx + 1}_${rIdx + 1}`,
+          title: rawTitle.slice(0, 24),
+          description: rawDesc ? rawDesc.slice(0, 72) : undefined,
+        };
+      }),
+    };
   });
+
+  let whatsapp_message_id = "";
+  try {
+    const res = await engineSendInteractiveList({
+      accountId: run.account_id,
+      userId: run.user_id,
+      conversationId: run.conversation_id!,
+      contactId: run.contact_id!,
+      bodyText,
+      buttonLabel,
+      headerText,
+      footerText,
+      sections,
+    });
+    whatsapp_message_id = res.whatsapp_message_id;
+  } catch (interactiveErr) {
+    // If Meta rejected the interactive list, fall back to sending a formatted text list
+    // so the flow NEVER gets stuck!
+    console.warn("[flows/engine] interactive list send failed, falling back to text:", interactiveErr);
+    await logEvent(db, run.id, "fallback_fired", node.node_key, {
+      fallback_to: "text_list",
+      detail: interactiveErr instanceof Error ? interactiveErr.message : String(interactiveErr),
+    });
+
+    const lines: string[] = [];
+    if (headerText) lines.push(`*${headerText}*`, "");
+    lines.push(bodyText, "");
+
+    let optionCounter = 1;
+    sections.forEach((s) => {
+      if (sections.length > 1 && s.title) {
+        lines.push(`*${s.title}*`);
+      }
+      s.rows.forEach((r) => {
+        lines.push(`${optionCounter}. ${r.title}${r.description ? ` (${r.description})` : ""}`);
+        optionCounter++;
+      });
+      lines.push("");
+    });
+    if (footerText) lines.push(`_${footerText}_`, "");
+    lines.push("👉 Reply with your choice (number or name).");
+
+    const textRes = await engineSendText({
+      accountId: run.account_id,
+      userId: run.user_id,
+      conversationId: run.conversation_id!,
+      contactId: run.contact_id!,
+      text: lines.join("\n").trim(),
+    });
+    whatsapp_message_id = textRes.whatsapp_message_id;
+  }
+
   await logEvent(db, run.id, "message_sent", node.node_key, {
     node_type: "send_list",
     whatsapp_message_id,
@@ -1022,6 +1131,12 @@ async function handleReplyForActiveRun(
       currentNode.node_type === "send_list")
   ) {
     matched = matchReplyId(currentNode, message.reply_id);
+  } else if (
+    message.kind === "text" &&
+    (currentNode.node_type === "send_buttons" ||
+      currentNode.node_type === "send_list")
+  ) {
+    matched = matchTextToInteractiveNode(currentNode, message.text);
   } else if (
     message.kind === "text" &&
     currentNode.node_type === "collect_input"

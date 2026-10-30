@@ -467,11 +467,16 @@ function SendListForm({
           label={t("buttonLabel")}
           value={cfg.button_label ?? ""}
           onChange={(v) => onUpdateConfig({ button_label: v })}
+          maxLength={20}
+          placeholder="View options"
+          hint="Button text in WhatsApp (max 20 chars)"
         />
         <TextRow
           label={t("footerText")}
           value={cfg.footer_text ?? ""}
           onChange={(v) => onUpdateConfig({ footer_text: v })}
+          maxLength={60}
+          placeholder="Optional footer text"
         />
       </div>
 
@@ -490,7 +495,8 @@ function SendListForm({
                 onChange={(e) =>
                   updateSection(sIdx, { title: e.target.value })
                 }
-                placeholder={t("sectionTitlePlaceholder", { count: sIdx + 1 })}
+                placeholder={sections.length === 1 ? "Section title (e.g. Options)" : t("sectionTitlePlaceholder", { count: sIdx + 1 })}
+                maxLength={24}
                 className="bg-muted text-xs"
               />
               {sections.length > 1 && (

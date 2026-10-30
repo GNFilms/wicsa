@@ -108,6 +108,11 @@ export interface AccountMember {
   custom_role_id?: string | null;
   custom_role_name?: string | null;
   custom_role?: CustomRole | null;
+  pipeline_id?: string | null;
+  pipeline_name?: string | null;
+  stage_id?: string | null;
+  stage_name?: string | null;
+  label?: string | null;
   joined_at: string;
 }
 

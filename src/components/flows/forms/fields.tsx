@@ -36,29 +36,47 @@ export function TextRow({
   value,
   onChange,
   rows = 1,
+  maxLength,
+  placeholder,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   rows?: number;
+  maxLength?: number;
+  placeholder?: string;
+  hint?: string;
 }) {
   return (
     <div>
-      <label className="mb-1 block text-xs text-muted-foreground">{label}</label>
+      <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+        <label>{label}</label>
+        {maxLength && (
+          <span className="text-[10px] text-muted-foreground/70">
+            {value.length}/{maxLength}
+          </span>
+        )}
+      </div>
       {rows > 1 ? (
         <Textarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
           rows={rows}
+          maxLength={maxLength}
+          placeholder={placeholder}
           className="bg-muted"
         />
       ) : (
         <Input
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          maxLength={maxLength}
+          placeholder={placeholder}
           className="bg-muted"
         />
       )}
+      {hint && <p className="mt-1 text-[10px] text-muted-foreground/70">{hint}</p>}
     </div>
   );
 }

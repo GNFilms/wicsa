@@ -1049,12 +1049,12 @@ export async function sendInteractiveList(
   } = args
   validateInteractiveBody(bodyText)
   validateInteractiveHeaderFooter(headerText, footerText)
-  if (!buttonLabel) throw new Error('Interactive list requires a buttonLabel.')
-  if (buttonLabel.length > INTERACTIVE_LIMITS.buttonTitleMaxLength) {
-    throw new Error(
-      `Interactive list buttonLabel "${buttonLabel}" exceeds ${INTERACTIVE_LIMITS.buttonTitleMaxLength} chars.`
-    )
-  }
+
+  // Meta strictly requires buttonLabel <= 20 chars
+  const effectiveButtonLabel = (buttonLabel && buttonLabel.trim())
+    ? buttonLabel.trim().slice(0, INTERACTIVE_LIMITS.buttonTitleMaxLength)
+    : 'View options'
+
   if (sections.length < 1 || sections.length > INTERACTIVE_LIMITS.maxListSections) {
     throw new Error(
       `Interactive list requires 1-${INTERACTIVE_LIMITS.maxListSections} sections (got ${sections.length}).`
@@ -1067,26 +1067,28 @@ export async function sendInteractiveList(
     )
   }
   const seenIds = new Set<string>()
-  for (const section of sections) {
-    for (const row of section.rows) {
-      if (!row.id) throw new Error('Interactive list row missing id.')
+  for (let sIdx = 0; sIdx < sections.length; sIdx++) {
+    const section = sections[sIdx]
+    for (let rIdx = 0; rIdx < section.rows.length; rIdx++) {
+      const row = section.rows[rIdx]
+      if (!row.id) {
+        row.id = `row_${sIdx + 1}_${rIdx + 1}`
+      }
       if (seenIds.has(row.id)) {
-        throw new Error(`Interactive list has duplicate row id "${row.id}".`)
+        row.id = `${row.id}_${rIdx + 1}`
       }
       seenIds.add(row.id)
-      if (!row.title) throw new Error(`Interactive list row "${row.id}" missing title.`)
+      if (!row.title) {
+        row.title = `Option ${rIdx + 1}`
+      }
       if (row.title.length > INTERACTIVE_LIMITS.listRowTitleMaxLength) {
-        throw new Error(
-          `Interactive list row title "${row.title}" exceeds ${INTERACTIVE_LIMITS.listRowTitleMaxLength} chars.`
-        )
+        row.title = row.title.slice(0, INTERACTIVE_LIMITS.listRowTitleMaxLength)
       }
       if (
         row.description &&
         row.description.length > INTERACTIVE_LIMITS.listRowDescriptionMaxLength
       ) {
-        throw new Error(
-          `Interactive list row description for "${row.id}" exceeds ${INTERACTIVE_LIMITS.listRowDescriptionMaxLength} chars.`
-        )
+        row.description = row.description.slice(0, INTERACTIVE_LIMITS.listRowDescriptionMaxLength)
       }
     }
   }
@@ -1095,9 +1097,12 @@ export async function sendInteractiveList(
     type: 'list',
     body: { text: bodyText },
     action: {
-      button: buttonLabel,
-      sections: sections.map((s) => ({
-        ...(s.title ? { title: s.title } : {}),
+      button: effectiveButtonLabel,
+      sections: sections.map((s, idx) => ({
+        // Meta strictly requires title on every section (max 24 chars)
+        title: (s.title && s.title.trim())
+          ? s.title.trim().slice(0, 24)
+          : (sections.length === 1 ? 'Options' : `Section ${idx + 1}`),
         rows: s.rows.map((r) => ({
           id: r.id,
           title: r.title,

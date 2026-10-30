@@ -20,6 +20,7 @@ import { MembersTab } from '@/components/settings/members-tab';
 import { RoleManager } from '@/components/settings/role-manager';
 import { BrandingPanel } from '@/components/settings/branding-panel';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
+import { UpdatePanel } from '@/components/settings/update-panel';
 import {
   resolveSection,
   type SettingsSection,
@@ -85,6 +86,7 @@ function SettingsPageInner() {
     members: <MembersTab onGoToRoles={() => go('roles')} />,
     roles: <RoleManager onGoToMembers={() => go('members')} />,
     api: <ApiKeysSettings />,
+    update: <UpdatePanel />,
   };
 
   return (
