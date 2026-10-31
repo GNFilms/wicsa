@@ -303,7 +303,7 @@ export async function POST(req: NextRequest) {
     // Step 4: Record history
     const historyEntry = {
       installedAt: new Date().toISOString(),
-      installedBy: auth.user.email || auth.user.id,
+            installedBy: (auth as any).user?.email || (auth as any).user?.id || 'admin',
       filesCount: updatedFilesCount,
       backedUpCount,
       backupPath: backupFolder,
