@@ -7,6 +7,9 @@ import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 const execFileAsync = promisify(execFile);
 
 // Root of the Next.js application
@@ -49,7 +52,7 @@ function getAllFilesRecursively(dir: string, baseDir = dir): { path: string; siz
   return results;
 }
 
-async function verifyOwnerAccess(req: NextRequest) {
+async function verifyOwnerAccess() {
   const supabase = await createClient();
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
   if (authErr || !user) {
@@ -95,8 +98,8 @@ async function verifyOwnerAccess(req: NextRequest) {
  * GET /api/admin/update
  * Returns system version, environment info, update history, and whether exec_sql RPC is ready.
  */
-export async function GET(req: NextRequest) {
-  const auth = await verifyOwnerAccess(req);
+export async function GET() {
+  const auth = await verifyOwnerAccess();
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -151,7 +154,7 @@ export async function GET(req: NextRequest) {
  * Handles zip file inspection and installation.
  */
 export async function POST(req: NextRequest) {
-  const auth = await verifyOwnerAccess(req);
+  const auth = await verifyOwnerAccess();
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -344,3 +347,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

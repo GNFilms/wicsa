@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs';
 import path from 'node:path';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 const APP_ROOT = process.cwd();
 const BACKUPS_DIR = path.join(APP_ROOT, '.update_backups');
 const HISTORY_FILE = path.join(BACKUPS_DIR, 'history.json');
@@ -278,3 +281,4 @@ export async function POST(req: NextRequest) {
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   });
 }
+

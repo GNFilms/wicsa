@@ -9,7 +9,6 @@ import {
   RefreshCw,
   Database,
   ShieldCheck,
-  ArrowRight,
   Copy,
   Check,
   ExternalLink,
