@@ -265,4 +265,3 @@ if (!$errorLog && file_exists($historyFile)) {
     </div>
 </body>
 </html>
-
