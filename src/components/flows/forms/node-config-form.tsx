@@ -1390,11 +1390,11 @@ function SendCarouselForm({
                   />
                   <div className="flex-1">
                     <NodeKeySelect
-                      value={btn.next_node_key}
-                      allNodes={allNodes}
-                      currentKey={currentKey}
+                      value={btn.next_node_key ?? null}
+                      nodes={allNodes}
+                      excludeKey={currentKey}
                       onChange={(next) =>
-                        updateButton(cIdx, bIdx, { next_node_key: next })
+                        updateButton(cIdx, bIdx, { next_node_key: next ?? undefined })
                       }
                       placeholder="→ Advances to..."
                     />
