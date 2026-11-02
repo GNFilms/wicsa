@@ -19,15 +19,19 @@
 import {
   Flag,
   GitFork,
+  Hourglass,
   Inbox,
+  Layers,
   ListChecks,
   ListPlus,
   MessageCircle,
   Paperclip,
   PlayCircle,
   Tag,
+  Timer,
   UserPlus,
   Workflow,
+  Zap,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -46,6 +50,9 @@ export type NodeType =
   | 'send_buttons'
   | 'send_list'
   | 'send_media'
+  | 'send_carousel'
+  | 'delay'
+  | 'run_automation'
   | 'collect_input'
   | 'condition'
   | 'set_tag'
@@ -127,6 +134,24 @@ export const NODE_META: Record<
     color: 'text-cyan-400',
     category: 'messaging',
   },
+  send_carousel: {
+    slugSeed: 'Send carousel',
+    icon: Layers,
+    color: 'text-teal-400',
+    category: 'messaging',
+  },
+  delay: {
+    slugSeed: 'Delay timer',
+    icon: Timer,
+    color: 'text-amber-400',
+    category: 'flow',
+  },
+  run_automation: {
+    slugSeed: 'Run automation',
+    icon: Zap,
+    color: 'text-purple-400',
+    category: 'logic',
+  },
   collect_input: {
     slugSeed: 'Collect input',
     icon: Inbox,
@@ -192,6 +217,9 @@ const NODE_HUE: Record<NodeType, { l: number; c: number; h: number }> = {
   send_buttons: { l: 0.62, c: 0.16, h: 254 }, // cobalt
   send_list: { l: 0.62, c: 0.15, h: 277 }, // indigo
   send_media: { l: 0.65, c: 0.12, h: 210 }, // sky
+  send_carousel: { l: 0.65, c: 0.16, h: 195 }, // cyan-teal
+  delay: { l: 0.70, c: 0.14, h: 80 }, // amber
+  run_automation: { l: 0.62, c: 0.18, h: 300 }, // purple
   collect_input: { l: 0.65, c: 0.1, h: 185 }, // teal — capture
   condition: { l: 0.72, c: 0.15, h: 65 }, // amber — a fork in the road
   set_tag: { l: 0.65, c: 0.15, h: 350 }, // pink
@@ -409,6 +437,26 @@ export function summarizeNode(
       return tagId
         ? t ? t('tagPicked', { mode, tag: tagId.slice(0, 8) }) : `${mode} tag ${tagId.slice(0, 8)}…`
         : t ? t('tagNone', { mode }) : `${mode} tag (none picked)`;
+    }
+    case 'send_carousel': {
+      const cards = Array.isArray(cfg.cards)
+        ? (cfg.cards as Array<Record<string, unknown>>)
+        : [];
+      return cards.length > 0
+        ? `${cards.length} carousel card${cards.length === 1 ? '' : 's'}`
+        : 'Empty carousel';
+    }
+    case 'delay': {
+      const secs = typeof cfg.seconds === 'number' ? cfg.seconds : 3;
+      return `Wait ${secs} second${secs === 1 ? '' : 's'}`;
+    }
+    case 'run_automation': {
+      const name = typeof cfg.automation_name === 'string' && cfg.automation_name
+        ? cfg.automation_name
+        : typeof cfg.automation_id === 'string' && cfg.automation_id
+          ? `ID: ${cfg.automation_id.slice(0, 8)}…`
+          : 'None selected';
+      return `Run: ${name}`;
     }
     case 'handoff': {
       const note = typeof cfg.note === 'string' ? cfg.note : '';

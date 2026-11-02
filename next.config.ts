@@ -92,8 +92,8 @@ const nextConfig: NextConfig = {
     "*.loca.lt",
     ...(process.env.ALLOWED_DEV_ORIGINS
       ? process.env.ALLOWED_DEV_ORIGINS.split(",")
-          .map((origin: string) => origin.trim())
-          .filter(Boolean)
+        .map((origin: string) => origin.trim())
+        .filter(Boolean)
       : []),
   ],
 

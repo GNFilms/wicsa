@@ -919,119 +919,26 @@ function outgoingEdges(node: NodeInput): string[] {
     }
     case "send_carousel": {
       const cfg = node.config as {
-        text?: string;
         cards?: Array<{
-          id?: string;
-          title?: string;
-          description?: string;
-          media_url?: string;
-          media_type?: string;
-          buttons?: Array<{
-            reply_id?: string;
-            title?: string;
-            next_node_key?: string;
-          }>;
+          buttons?: Array<{ next_node_key?: string }>;
         }>;
       };
-      const cards = cfg.cards ?? [];
-      if (cards.length === 0) {
-        issues.push({
-          severity: "error",
-          scope: "node",
-          node_key: node.node_key,
-          field: "cards",
-          message: "Carousel node needs at least one card.",
-        });
-      }
-      cards.forEach((c, cIdx) => {
-        if (!c.title?.trim()) {
-          issues.push({
-            severity: "warning",
-            scope: "node",
-            node_key: node.node_key,
-            field: `cards[${cIdx}].title`,
-            message: `Carousel card ${cIdx + 1} has no title.`,
-          });
+      const out: string[] = [];
+      for (const c of cfg.cards ?? []) {
+        for (const b of c.buttons ?? []) {
+          if (b.next_node_key) out.push(b.next_node_key);
         }
-        (c.buttons ?? []).forEach((b, bIdx) => {
-          if (!b.title?.trim()) {
-            issues.push({
-              severity: "error",
-              scope: "node",
-              node_key: node.node_key,
-              field: `cards[${cIdx}].buttons[${bIdx}].title`,
-              message: `Card ${cIdx + 1} button ${bIdx + 1} needs a title.`,
-            });
-          }
-          if (b.next_node_key && !knownKeys.has(b.next_node_key)) {
-            issues.push({
-              severity: "error",
-              scope: "node",
-              node_key: node.node_key,
-              field: `cards[${cIdx}].buttons[${bIdx}].next_node_key`,
-              message: `Card ${cIdx + 1} button ${bIdx + 1} points to non-existent node "${b.next_node_key}".`,
-            });
-          }
-        });
-      });
-      break;
+      }
+      return out;
     }
-
     case "delay": {
-      const cfg = node.config as { seconds?: number; next_node_key?: string };
-      const secs = cfg.seconds ?? 0;
-      if (secs < 1 || secs > 60) {
-        issues.push({
-          severity: "warning",
-          scope: "node",
-          node_key: node.node_key,
-          field: "seconds",
-          message: "Delay duration should be between 1 and 60 seconds.",
-        });
-      }
-      if (!cfg.next_node_key) {
-        issues.push({
-          severity: "warning",
-          scope: "node",
-          node_key: node.node_key,
-          field: "next_node_key",
-          message: "Delay node has no next node selected.",
-        });
-      } else if (!knownKeys.has(cfg.next_node_key)) {
-        issues.push({
-          severity: "error",
-          scope: "node",
-          node_key: node.node_key,
-          field: "next_node_key",
-          message: `Delay points to non-existent node "${cfg.next_node_key}".`,
-        });
-      }
-      break;
+      const cfg = node.config as { next_node_key?: string };
+      return cfg.next_node_key ? [cfg.next_node_key] : [];
     }
-
     case "run_automation": {
-      const cfg = node.config as { automation_id?: string; next_node_key?: string };
-      if (!cfg.automation_id) {
-        issues.push({
-          severity: "warning",
-          scope: "node",
-          node_key: node.node_key,
-          field: "automation_id",
-          message: "No automation selected to run.",
-        });
-      }
-      if (cfg.next_node_key && !knownKeys.has(cfg.next_node_key)) {
-        issues.push({
-          severity: "error",
-          scope: "node",
-          node_key: node.node_key,
-          field: "next_node_key",
-          message: `Run automation points to non-existent node "${cfg.next_node_key}".`,
-        });
-      }
-      break;
+      const cfg = node.config as { next_node_key?: string };
+      return cfg.next_node_key ? [cfg.next_node_key] : [];
     }
-
     case "handoff":
     case "end":
     default:

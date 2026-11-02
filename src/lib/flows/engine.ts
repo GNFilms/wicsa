@@ -1121,7 +1121,7 @@ async function advanceFromNodeKey(
         delay_seconds: secs,
       });
       await new Promise((resolve) => setTimeout(resolve, secs * 1000));
-      currentKey = cfg.next_node_key;
+      currentKey = cfg.next_node_key ?? null;
       continue;
     }
     if (node.node_type === "run_automation") {
@@ -1144,7 +1144,7 @@ async function advanceFromNodeKey(
           });
         }
       }
-      currentKey = cfg.next_node_key;
+      currentKey = cfg.next_node_key ?? null;
       continue;
     }
     if (node.node_type === "handoff") {
@@ -1530,8 +1530,8 @@ export async function startFlowDirectly(
 ): Promise<{ success: boolean; flowRunId?: string; error?: string }> {
   try {
     const flow = await loadFlow(db, params.flowId);
-    if (!flow || flow.status !== "published") {
-      return { success: false, error: "flow_not_published_or_not_found" };
+    if (!flow || flow.status !== "active") {
+      return { success: false, error: "flow_not_active_or_not_found" };
     }
 
     const activeRun = await loadActiveRunForContact(
@@ -1547,7 +1547,7 @@ export async function startFlowDirectly(
       };
     }
 
-    const nodes = await loadFlowNodes(db, flow.id);
+    const nodes = await loadAllNodes(db, flow.id);
     if (!flow.entry_node_id || !nodes.has(flow.entry_node_id)) {
       return { success: false, error: "missing_entry_node" };
     }

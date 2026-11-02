@@ -189,6 +189,7 @@ export interface CarouselCard {
 export interface SendCarouselNodeConfig {
   /** Optional body or introductory text sent before or with carousel. */
   text?: string;
+  body_text?: string;
   /** 1-10 carousel cards with media and buttons. */
   cards: CarouselCard[];
 }

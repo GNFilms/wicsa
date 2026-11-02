@@ -33,6 +33,9 @@ import {
   ArrowUp,
   MousePointerClick,
   List,
+  Paperclip,
+  Upload,
+  Workflow,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -110,7 +113,9 @@ const STEP_META: Record<AutomationStepType, StepMeta> = {
   send_message: { label: "send_message", icon: MessageSquare, border: "border-l-primary" },
   send_buttons: { label: "send_buttons", icon: MousePointerClick, border: "border-l-primary" },
   send_list: { label: "send_list", icon: List, border: "border-l-primary" },
+  send_media: { label: "send_media", icon: Paperclip, border: "border-l-primary" },
   send_template: { label: "send_template", icon: FileText, border: "border-l-primary" },
+  run_flow: { label: "run_flow", icon: Workflow, border: "border-l-primary" },
   add_tag: { label: "add_tag", icon: Tag, border: "border-l-primary" },
   remove_tag: { label: "remove_tag", icon: TagIcon, border: "border-l-primary" },
   assign_conversation: { label: "assign_conversation", icon: UserCheck, border: "border-l-primary" },
@@ -126,7 +131,9 @@ const ADDABLE_STEPS: AutomationStepType[] = [
   "send_message",
   "send_buttons",
   "send_list",
+  "send_media",
   "send_template",
+  "run_flow",
   "add_tag",
   "remove_tag",
   "assign_conversation",
@@ -178,6 +185,10 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
       return toStepConfig(blankButtonsPayload())
     case "send_list":
       return toStepConfig(blankListPayload())
+    case "send_media":
+      return { media_type: "image", media_url: "", caption: "", filename: "" }
+    case "run_flow":
+      return { flow_id: "", flow_name: "" }
     case "send_template":
       return { template_name: "", language: "en_US" }
     case "add_tag":
@@ -1326,6 +1337,22 @@ function StepEditor({
           }
         />
       )
+    case "send_media":
+      return (
+        <SendMediaFields
+          cfg={cfg}
+          onChange={(patch) => set(patch)}
+          t={t}
+        />
+      )
+    case "run_flow":
+      return (
+        <RunFlowFields
+          cfg={cfg}
+          onChange={(patch) => set(patch)}
+          t={t}
+        />
+      )
     case "send_template":
       return (
         <SendTemplateFields
@@ -1535,6 +1562,10 @@ function previewFor(step: BuilderStep): string {
     case "send_buttons":
     case "send_list":
       return interactivePayloadPreviewText(asInteractive(step.step_config)) || "no body yet"
+    case "send_media":
+      return `${(step.step_config.media_type as string) || "media"}: ${(step.step_config.filename as string) || (step.step_config.media_url as string) || "file"}`
+    case "run_flow":
+      return `flow: ${(step.step_config.flow_name as string) || (step.step_config.flow_id as string) || "choose flow"}`
     case "send_template":
       return (step.step_config.template_name as string) || "pick a template"
     case "wait":
@@ -1579,6 +1610,8 @@ export interface ServerStepNode {
   branches: { yes: ServerStepNode[]; no: ServerStepNode[] }
 }
 
+import { uploadAccountMedia } from "@/lib/storage/upload-media"
+
 export function fromServerSteps(nodes: ServerStepNode[]): BuilderStep[] {
   return nodes.map((n) => ({
     cid: cid(),
@@ -1592,4 +1625,182 @@ export function fromServerSteps(nodes: ServerStepNode[]): BuilderStep[] {
           }
         : undefined,
   }))
+}
+
+// ------------------------------------------------------------
+// Custom Action Fields: Send Media & Run Flow
+// ------------------------------------------------------------
+
+function SendMediaFields({
+  cfg,
+  onChange,
+  t,
+}: {
+  cfg: Record<string, unknown>
+  onChange: (patch: Record<string, unknown>) => void
+  t: ReturnType<typeof useTranslations>
+}) {
+  const [uploading, setUploading] = useState(false)
+  const mediaType = (cfg.media_type as string) || "image"
+  const isDocument = mediaType === "document"
+
+  const handleUpload = async (file: File) => {
+    setUploading(true)
+    try {
+      const { publicUrl } = await uploadAccountMedia("flow-media", file)
+      const isVideo = file.type.startsWith("video/")
+      const isAudio = file.type.startsWith("audio/")
+      const inferredType = isVideo ? "video" : isAudio ? "audio" : file.type.startsWith("image/") ? "image" : "document"
+      onChange({
+        media_url: publicUrl,
+        media_type: inferredType,
+        filename: file.name,
+      })
+      toast.success("Media file uploaded successfully")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Upload failed")
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <FieldBlock label="Media Type">
+        <select
+          value={mediaType}
+          onChange={(e) => onChange({ media_type: e.target.value })}
+          className="h-9 w-full rounded-md border border-border bg-muted px-3 text-sm text-foreground"
+        >
+          <option value="image">Image (PNG, JPG, WebP)</option>
+          <option value="video">Video (MP4, 3GP)</option>
+          <option value="audio">Audio (AAC, MP3, OGG)</option>
+          <option value="document">Document (PDF, Office, etc.)</option>
+        </select>
+      </FieldBlock>
+
+      <FieldBlock label="Media URL / File">
+        <div className="flex items-center gap-2">
+          <Input
+            value={(cfg.media_url as string) ?? ""}
+            onChange={(e) => onChange({ media_url: e.target.value })}
+            placeholder="https://... (or click Upload)"
+            className="h-9 bg-muted text-xs flex-1 text-foreground"
+          />
+          <label className="inline-flex items-center justify-center rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer h-9">
+            {uploading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Upload className="h-3.5 w-3.5 mr-1" />
+            )}
+            Upload
+            <input
+              type="file"
+              accept="image/*,video/*,audio/*,application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files?.[0]) {
+                  void handleUpload(e.target.files[0])
+                }
+                e.target.value = ""
+              }}
+            />
+          </label>
+        </div>
+      </FieldBlock>
+
+      <FieldBlock label="Caption (Optional)">
+        <Textarea
+          value={(cfg.caption as string) ?? ""}
+          onChange={(e) => onChange({ caption: e.target.value })}
+          placeholder="Optional message caption sent with media..."
+          className="min-h-16 bg-muted text-xs text-foreground"
+          maxLength={1024}
+        />
+      </FieldBlock>
+
+      {isDocument && (
+        <FieldBlock label="Filename (Documents only)">
+          <Input
+            value={(cfg.filename as string) ?? ""}
+            onChange={(e) => onChange({ filename: e.target.value })}
+            placeholder="e.g. Price_Catalog.pdf"
+            className="h-8 bg-muted text-xs text-foreground"
+          />
+        </FieldBlock>
+      )}
+    </div>
+  )
+}
+
+function RunFlowFields({
+  cfg,
+  onChange,
+  t,
+}: {
+  cfg: Record<string, unknown>
+  onChange: (patch: Record<string, unknown>) => void
+  t: ReturnType<typeof useTranslations>
+}) {
+  const [flows, setFlows] = useState<Array<{ id: string; name: string; status?: string }>>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    void (async () => {
+      try {
+        const res = await fetch("/api/flows", { cache: "no-store" })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled && Array.isArray(data.flows)) {
+          setFlows(data.flows)
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return (
+    <div className="space-y-3">
+      <FieldBlock label="Select Flow to Launch">
+        <p className="mb-2 text-[11px] text-muted-foreground">
+          When this automation step runs, it will immediately start the selected conversation flow for the customer.
+        </p>
+        {loading ? (
+          <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Loading flows...
+          </div>
+        ) : flows.length === 0 ? (
+          <p className="py-2 text-xs text-muted-foreground">
+            No flows found. Create one under Flows first.
+          </p>
+        ) : (
+          <select
+            value={(cfg.flow_id as string) ?? ""}
+            onChange={(e) => {
+              const selected = flows.find((f) => f.id === e.target.value)
+              onChange({
+                flow_id: e.target.value,
+                flow_name: selected?.name ?? "",
+              })
+            }}
+            className="h-9 w-full rounded-md border border-border bg-muted px-3 text-sm text-foreground"
+          >
+            <option value="">-- Choose a Flow --</option>
+            {flows.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name || "Untitled flow"} {f.status ? `(${f.status})` : ""}
+              </option>
+            ))}
+          </select>
+        )}
+      </FieldBlock>
+    </div>
+  )
 }

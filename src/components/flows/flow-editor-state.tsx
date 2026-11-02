@@ -166,6 +166,33 @@ export function defaultConfigFor(type: NodeType): Record<string, unknown> {
         filename: "",
         next_node_key: "",
       };
+    case "send_carousel":
+      return {
+        text: "",
+        cards: [
+          {
+            id: "card_1",
+            title: "Card 1",
+            description: "",
+            media_url: "",
+            media_type: "image",
+            buttons: [
+              { reply_id: "card_1_btn_1", title: "Select", next_node_key: "" },
+            ],
+          },
+        ],
+      };
+    case "delay":
+      return {
+        seconds: 3,
+        next_node_key: "",
+      };
+    case "run_automation":
+      return {
+        automation_id: "",
+        automation_name: "",
+        next_node_key: "",
+      };
     case "collect_input":
       return {
         prompt_text: "",

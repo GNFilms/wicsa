@@ -26,12 +26,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Clock,
+  Image as ImageIcon,
+  Layers,
   Loader2,
   Paperclip,
   Plus,
+  Timer,
   Trash2,
   Upload,
+  Video as VideoIcon,
   X,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
@@ -124,6 +130,40 @@ export function NodeConfigForm({
       return (
         <SendMediaForm
           cfg={cfg as SendMediaCfg}
+          allNodes={allNodes}
+          currentKey={node.node_key}
+          onUpdateConfig={onUpdateConfig}
+          t={t}
+        />
+      );
+
+    case "send_carousel":
+      return (
+        <SendCarouselForm
+          cfg={cfg as SendCarouselCfg}
+          allNodes={allNodes}
+          currentKey={node.node_key}
+          onUpdateConfig={onUpdateConfig}
+          showAdvanced={showAdvanced}
+          t={t}
+        />
+      );
+
+    case "delay":
+      return (
+        <DelayForm
+          cfg={cfg as DelayCfg}
+          allNodes={allNodes}
+          currentKey={node.node_key}
+          onUpdateConfig={onUpdateConfig}
+          t={t}
+        />
+      );
+
+    case "run_automation":
+      return (
+        <RunAutomationForm
+          cfg={cfg as RunAutomationCfg}
           allNodes={allNodes}
           currentKey={node.node_key}
           onUpdateConfig={onUpdateConfig}
@@ -1067,5 +1107,497 @@ function SendMediaForm({
         label={t("advanceAfterSending")}
       />
     </>
+  );
+}
+
+// ============================================================
+// send_carousel
+// ============================================================
+
+interface CarouselCardItem {
+  id: string;
+  title: string;
+  description?: string;
+  media_url?: string;
+  media_type?: "image" | "video";
+  buttons: Array<{
+    reply_id: string;
+    title: string;
+    next_node_key: string;
+  }>;
+}
+
+interface SendCarouselCfg {
+  text?: string;
+  cards?: CarouselCardItem[];
+}
+
+function SendCarouselForm({
+  cfg,
+  allNodes,
+  currentKey,
+  onUpdateConfig,
+  showAdvanced,
+  t,
+}: {
+  cfg: SendCarouselCfg;
+  allNodes: BuilderNode[];
+  currentKey: string;
+  onUpdateConfig: (patch: Record<string, unknown>) => void;
+  showAdvanced: boolean;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const cards = cfg.cards ?? [];
+  const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
+
+  const updateCard = (idx: number, patch: Partial<CarouselCardItem>) => {
+    onUpdateConfig({
+      cards: cards.map((c, i) => (i === idx ? { ...c, ...patch } : c)),
+    });
+  };
+
+  const addCard = () => {
+    const newIdx = cards.length + 1;
+    onUpdateConfig({
+      cards: [
+        ...cards,
+        {
+          id: `card_${newIdx}`,
+          title: `Card ${newIdx}`,
+          description: "",
+          media_url: "",
+          media_type: "image",
+          buttons: [
+            {
+              reply_id: `card_${newIdx}_btn_1`,
+              title: "Select",
+              next_node_key: "",
+            },
+          ],
+        },
+      ],
+    });
+  };
+
+  const removeCard = (idx: number) => {
+    onUpdateConfig({ cards: cards.filter((_, i) => i !== idx) });
+  };
+
+  const updateButton = (
+    cIdx: number,
+    bIdx: number,
+    patch: Partial<CarouselCardItem["buttons"][number]>,
+  ) => {
+    onUpdateConfig({
+      cards: cards.map((c, i) =>
+        i === cIdx
+          ? {
+              ...c,
+              buttons: c.buttons.map((b, j) =>
+                j === bIdx ? { ...b, ...patch } : b,
+              ),
+            }
+          : c,
+      ),
+    });
+  };
+
+  const addButton = (cIdx: number) => {
+    const card = cards[cIdx];
+    if (!card || card.buttons.length >= 3) return;
+    const btnNum = card.buttons.length + 1;
+    onUpdateConfig({
+      cards: cards.map((c, i) =>
+        i === cIdx
+          ? {
+              ...c,
+              buttons: [
+                ...c.buttons,
+                {
+                  reply_id: `card_${cIdx + 1}_btn_${btnNum}`,
+                  title: `Option ${btnNum}`,
+                  next_node_key: "",
+                },
+              ],
+            }
+          : c,
+      ),
+    });
+  };
+
+  const removeButton = (cIdx: number, bIdx: number) => {
+    onUpdateConfig({
+      cards: cards.map((c, i) =>
+        i === cIdx
+          ? { ...c, buttons: c.buttons.filter((_, j) => j !== bIdx) }
+          : c,
+      ),
+    });
+  };
+
+  const handleCardUpload = async (cIdx: number, file: File) => {
+    setUploadingIdx(cIdx);
+    try {
+      const { publicUrl } = await uploadAccountMedia(FLOW_MEDIA_BUCKET, file);
+      const isVideo = file.type.startsWith("video/");
+      updateCard(cIdx, {
+        media_url: publicUrl,
+        media_type: isVideo ? "video" : "image",
+      });
+      toast.success("Card media uploaded");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploadingIdx(null);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <TextRow
+        label="Introductory Text (Optional)"
+        value={cfg.text ?? ""}
+        onChange={(v) => onUpdateConfig({ text: v })}
+        rows={2}
+        placeholder="Check out our latest samples and options below:"
+      />
+
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-medium text-foreground">
+          Carousel Cards ({cards.length}/10)
+        </label>
+        {cards.length < 10 && (
+          <Button variant="outline" size="sm" onClick={addCard} className="h-7 text-xs">
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Add Card
+          </Button>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        {cards.map((card, cIdx) => (
+          <div
+            key={card.id || cIdx}
+            className="rounded-lg border border-border bg-muted/40 p-3 space-y-3"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-primary">
+                Card #{cIdx + 1}
+              </span>
+              {cards.length > 1 && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-red-400 hover:text-red-300"
+                  onClick={() => removeCard(cIdx)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+
+            {/* Media preview / upload */}
+            <div>
+              <label className="mb-1 block text-[11px] text-muted-foreground">
+                Card Media (Image / Video)
+              </label>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={card.media_url ?? ""}
+                  onChange={(e) => updateCard(cIdx, { media_url: e.target.value })}
+                  placeholder="https://... (or upload file)"
+                  className="bg-muted text-xs h-8 flex-1"
+                />
+                <label className="inline-flex items-center justify-center rounded-md border border-input bg-background px-2.5 py-1 text-xs font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer h-8">
+                  {uploadingIdx === cIdx ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  Upload
+                  <input
+                    type="file"
+                    accept="image/*,video/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        void handleCardUpload(cIdx, e.target.files[0]);
+                      }
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Title & Description */}
+            <div className="grid grid-cols-1 gap-2">
+              <div>
+                <label className="mb-1 block text-[11px] text-muted-foreground">
+                  Card Title
+                </label>
+                <Input
+                  value={card.title ?? ""}
+                  onChange={(e) => updateCard(cIdx, { title: e.target.value })}
+                  placeholder="e.g. Voiceover Reel Video"
+                  className="bg-muted text-xs h-8"
+                  maxLength={80}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-muted-foreground">
+                  Description
+                </label>
+                <Input
+                  value={card.description ?? ""}
+                  onChange={(e) => updateCard(cIdx, { description: e.target.value })}
+                  placeholder="Short description or pricing hint"
+                  className="bg-muted text-xs h-8"
+                  maxLength={160}
+                />
+              </div>
+            </div>
+
+            {/* Buttons on card */}
+            <div className="space-y-1.5 pt-1 border-t border-border/50">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-medium text-muted-foreground">
+                  Buttons ({card.buttons.length}/3)
+                </label>
+                {card.buttons.length < 3 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-[11px] px-2"
+                    onClick={() => addButton(cIdx)}
+                  >
+                    <Plus className="mr-1 h-3 w-3" />
+                    Add Button
+                  </Button>
+                )}
+              </div>
+
+              {card.buttons.map((btn, bIdx) => (
+                <div key={bIdx} className="flex items-center gap-2">
+                  <Input
+                    value={btn.title}
+                    onChange={(e) =>
+                      updateButton(cIdx, bIdx, { title: e.target.value })
+                    }
+                    placeholder="Button Label"
+                    maxLength={20}
+                    className="bg-muted text-xs h-8 w-1/3"
+                  />
+                  <div className="flex-1">
+                    <NodeKeySelect
+                      value={btn.next_node_key}
+                      allNodes={allNodes}
+                      currentKey={currentKey}
+                      onChange={(next) =>
+                        updateButton(cIdx, bIdx, { next_node_key: next })
+                      }
+                      placeholder="→ Advances to..."
+                    />
+                  </div>
+                  {card.buttons.length > 1 && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-red-400"
+                      onClick={() => removeButton(cIdx, bIdx)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// delay (Delay Text Timer)
+// ============================================================
+
+interface DelayCfg {
+  seconds?: number;
+  next_node_key?: string;
+}
+
+function DelayForm({
+  cfg,
+  allNodes,
+  currentKey,
+  onUpdateConfig,
+  t,
+}: {
+  cfg: DelayCfg;
+  allNodes: BuilderNode[];
+  currentKey: string;
+  onUpdateConfig: (patch: Record<string, unknown>) => void;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const currentSeconds = cfg.seconds ?? 3;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="mb-1 block text-xs font-medium text-foreground">
+          Delay Duration (Seconds)
+        </label>
+        <p className="mb-2 text-[11px] text-muted-foreground">
+          Pause before sending the next message to make conversations feel natural and avoid message bursts.
+        </p>
+
+        <div className="flex items-center gap-3">
+          <Input
+            type="number"
+            min={1}
+            max={60}
+            value={currentSeconds}
+            onChange={(e) =>
+              onUpdateConfig({ seconds: Math.max(1, Math.min(60, Number(e.target.value) || 1)) })
+            }
+            className="bg-muted font-mono text-sm w-28"
+          />
+          <span className="text-xs text-muted-foreground">seconds</span>
+        </div>
+
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {[1, 2, 3, 5, 10, 15].map((sec) => (
+            <Button
+              key={sec}
+              type="button"
+              variant={currentSeconds === sec ? "default" : "outline"}
+              size="sm"
+              className="h-6 text-[11px] px-2.5"
+              onClick={() => onUpdateConfig({ seconds: sec })}
+            >
+              {sec}s
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      <NextNodeRow
+        value={cfg.next_node_key ?? ""}
+        allNodes={allNodes}
+        currentKey={currentKey}
+        onChange={(v) => onUpdateConfig({ next_node_key: v })}
+        label="After delay, advance to"
+      />
+    </div>
+  );
+}
+
+// ============================================================
+// run_automation
+// ============================================================
+
+interface RunAutomationCfg {
+  automation_id?: string;
+  automation_name?: string;
+  next_node_key?: string;
+}
+
+interface AutomationListItem {
+  id: string;
+  name: string;
+  trigger_type: string;
+  is_active: boolean;
+}
+
+function RunAutomationForm({
+  cfg,
+  allNodes,
+  currentKey,
+  onUpdateConfig,
+  t,
+}: {
+  cfg: RunAutomationCfg;
+  allNodes: BuilderNode[];
+  currentKey: string;
+  onUpdateConfig: (patch: Record<string, unknown>) => void;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const [automations, setAutomations] = useState<AutomationListItem[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch("/api/automations", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.automations)) {
+          setAutomations(data.automations);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="mb-1 block text-xs font-medium text-foreground">
+          Select Automation to Trigger
+        </label>
+        <p className="mb-2 text-[11px] text-muted-foreground">
+          Instantly run a quick automation workflow (e.g. assign agent, add tags, send notification) when this node executes.
+        </p>
+
+        {loading ? (
+          <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Loading automations...
+          </div>
+        ) : automations.length === 0 ? (
+          <p className="py-2 text-xs text-muted-foreground">
+            No automations found. Create one under Automations first.
+          </p>
+        ) : (
+          <Select
+            value={cfg.automation_id ?? ""}
+            onValueChange={(val) => {
+              const selected = automations.find((a) => a.id === val);
+              onUpdateConfig({
+                automation_id: val,
+                automation_name: selected?.name ?? "",
+              });
+            }}
+          >
+            <SelectTrigger className="bg-muted text-xs">
+              <SelectValue placeholder="Choose an automation..." />
+            </SelectTrigger>
+            <SelectContent>
+              {automations.map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.name || "Untitled automation"} ({a.trigger_type})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+
+      <NextNodeRow
+        value={cfg.next_node_key ?? ""}
+        allNodes={allNodes}
+        currentKey={currentKey}
+        onChange={(v) => onUpdateConfig({ next_node_key: v })}
+        label="After automation triggers, advance to"
+      />
+    </div>
   );
 }

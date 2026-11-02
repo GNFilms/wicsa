@@ -5,6 +5,7 @@ import {
   useRef,
   useCallback,
   useEffect,
+  useMemo,
   KeyboardEvent,
 } from "react";
 import {
@@ -20,6 +21,7 @@ import {
   Loader2,
   Sparkles,
   Plus,
+  MessageSquare,
   MessageSquareDashed,
   Zap,
   UploadCloud,
@@ -54,7 +56,7 @@ import {
   InteractiveBuilder,
   blankButtonsPayload,
 } from "@/components/interactive/interactive-builder";
-import { validateInteractivePayload } from "@/lib/whatsapp/interactive";
+import { validateInteractivePayload, interactivePayloadPreviewText } from "@/lib/whatsapp/interactive";
 import type { InteractiveMessagePayload, QuickReply } from "@/types";
 import { QuickReplyPicker } from "./quick-reply-picker";
 
@@ -262,16 +264,6 @@ export function MessageComposer({
     }
   }, [text, sending, sessionExpired, onSend, replyTo?.id]);
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [handleSend]
-  );
-
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       setText(e.target.value);
@@ -405,6 +397,108 @@ export function MessageComposer({
       });
     },
     [openInteractiveBuilder, adjustHeight],
+  );
+
+  // Slash shortcut (`/` or `/ `) for quick replies inline in the composer
+  const [quickRepliesList, setQuickRepliesList] = useState<QuickReply[]>([]);
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
+
+  const loadQuickReplies = useCallback(async () => {
+    try {
+      const res = await fetch("/api/quick-replies", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        setQuickRepliesList(data.quick_replies ?? []);
+      }
+    } catch {
+      // Non-fatal
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadQuickReplies();
+  }, [loadQuickReplies]);
+
+  const isSlashActive = text.startsWith("/");
+  const slashQuery = isSlashActive ? text.slice(1).trim().toLowerCase() : "";
+  const filteredQuickReplies = useMemo(() => {
+    if (!isSlashActive) return [];
+    if (!slashQuery) return quickRepliesList.slice(0, 10);
+    return quickRepliesList
+      .filter(
+        (qr) =>
+          qr.title.toLowerCase().includes(slashQuery) ||
+          (qr.content_text && qr.content_text.toLowerCase().includes(slashQuery)),
+      )
+      .slice(0, 10);
+  }, [isSlashActive, slashQuery, quickRepliesList]);
+
+  useEffect(() => {
+    setSlashSelectedIndex(0);
+  }, [filteredQuickReplies.length, slashQuery]);
+
+  const selectQuickReplyFromSlash = useCallback(
+    (qr: QuickReply) => {
+      if (qr.kind === "interactive" && qr.interactive_payload) {
+        setText("");
+        openInteractiveBuilder(qr.interactive_payload);
+      } else {
+        setText(qr.content_text ?? "");
+        requestAnimationFrame(() => {
+          adjustHeight();
+          const el = textareaRef.current;
+          if (el) {
+            el.focus();
+            el.setSelectionRange(el.value.length, el.value.length);
+          }
+        });
+      }
+    },
+    [openInteractiveBuilder, adjustHeight],
+  );
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (isSlashActive && filteredQuickReplies.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSlashSelectedIndex((prev) => (prev + 1) % filteredQuickReplies.length);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSlashSelectedIndex(
+            (prev) => (prev - 1 + filteredQuickReplies.length) % filteredQuickReplies.length,
+          );
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          const qr = filteredQuickReplies[slashSelectedIndex];
+          if (qr) {
+            selectQuickReplyFromSlash(qr);
+          }
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setText("");
+          return;
+        }
+      }
+
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleSend();
+      }
+    },
+    [
+      isSlashActive,
+      filteredQuickReplies,
+      slashSelectedIndex,
+      selectQuickReplyFromSlash,
+      handleSend,
+    ],
   );
 
   // Upload captured files to chat-media and stage them as drafts.
@@ -889,26 +983,70 @@ export function MessageComposer({
             )}
           </GatedButton>
 
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              readOnly
-                ? t("readOnlyPlaceholder")
-                : sessionExpired
-                  ? t("sessionExpiredPlaceholder")
-                  : t("typeMessagePlaceholder")
-            }
-            disabled={sessionExpired || readOnly}
-            rows={1}
-            title={readOnly ? t("readOnlyTitle") : undefined}
-            className={cn(
-              "flex-1 resize-none rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50",
-              (sessionExpired || readOnly) && "cursor-not-allowed opacity-50"
+          <div className="relative flex-1 flex items-center">
+            {isSlashActive && filteredQuickReplies.length > 0 && (
+              <div className="absolute bottom-full left-0 right-0 z-50 mb-2 max-h-64 overflow-y-auto rounded-xl border border-border bg-popover p-1.5 shadow-2xl animate-in fade-in slide-in-from-bottom-2">
+                <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center justify-between border-b border-border/50 mb-1">
+                  <span className="flex items-center gap-1.5">
+                    <Zap className="h-3 w-3 text-primary" />
+                    Quick Replies ({filteredQuickReplies.length})
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">↑↓ to navigate · Enter to select · Esc to close</span>
+                </div>
+                <div className="space-y-0.5">
+                  {filteredQuickReplies.map((qr, idx) => (
+                    <button
+                      key={qr.id}
+                      type="button"
+                      onMouseEnter={() => setSlashSelectedIndex(idx)}
+                      onClick={() => selectQuickReplyFromSlash(qr)}
+                      className={cn(
+                        "flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs transition-colors",
+                        idx === slashSelectedIndex
+                          ? "bg-primary text-primary-foreground font-medium"
+                          : "hover:bg-muted text-foreground"
+                      )}
+                    >
+                      {qr.kind === "interactive" ? (
+                        <Zap className={cn("mt-0.5 h-4 w-4 shrink-0", idx === slashSelectedIndex ? "text-primary-foreground" : "text-primary")} />
+                      ) : (
+                        <MessageSquare className={cn("mt-0.5 h-4 w-4 shrink-0", idx === slashSelectedIndex ? "text-primary-foreground" : "text-muted-foreground")} />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-semibold">{qr.title}</span>
+                        <span className={cn("block truncate text-[11px]", idx === slashSelectedIndex ? "text-primary-foreground/80" : "text-muted-foreground")}>
+                          {qr.kind === "interactive" && qr.interactive_payload
+                            ? interactivePayloadPreviewText(qr.interactive_payload)
+                            : qr.content_text}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
-          />
+
+            <textarea
+              ref={textareaRef}
+              value={text}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                readOnly
+                  ? t("readOnlyPlaceholder")
+                  : sessionExpired
+                    ? t("sessionExpiredPlaceholder")
+                    : t("typeMessagePlaceholder")
+              }
+              disabled={sessionExpired || readOnly}
+              rows={1}
+              title={readOnly ? t("readOnlyTitle") : undefined}
+              className={cn(
+                "w-full resize-none rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50",
+                (sessionExpired || readOnly) && "cursor-not-allowed opacity-50"
+              )}
+            />
+          </div>
 
           <GatedButton
             size="sm"
