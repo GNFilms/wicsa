@@ -11,6 +11,8 @@ import {
   engineSendText,
   loadAccountMetaCredentials,
 } from '@/lib/flows/meta-send'
+import { startFlowDirectly } from '@/lib/flows/engine'
+import { dispatchAutomationDirectly } from '@/lib/automations/engine'
 import { sendTypingIndicator } from '@/lib/whatsapp/meta-api'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
@@ -130,8 +132,36 @@ export async function dispatchInboundToAiReply(
       latestUserMessage(messages),
     )
 
+    // Load available active Flows and Automations for this account
+    const [{ data: flows }, { data: automations }] = await Promise.all([
+      db
+        .from('flows')
+        .select('id, name, description')
+        .eq('account_id', accountId)
+        .eq('status', 'published')
+        .limit(20),
+      db
+        .from('automations')
+        .select('id, name, description')
+        .eq('account_id', accountId)
+        .eq('is_active', true)
+        .limit(20),
+    ])
+
+    let workflowInstructions = ''
+    if ((flows && flows.length > 0) || (automations && automations.length > 0)) {
+      workflowInstructions = '\n\nYou can trigger interactive Flows or Automations for the customer when relevant.\n'
+      if (flows && flows.length > 0) {
+        workflowInstructions += 'Available Flows:\n' + flows.map((f) => `- "${f.name}" (ID: ${f.id}): ${f.description || 'Interactive flow'}`).join('\n') + '\nTo trigger a flow, include [ACTION:TRIGGER_FLOW:<flow_id>] in your reply.\n'
+      }
+      if (automations && automations.length > 0) {
+        workflowInstructions += '\nAvailable Automations:\n' + automations.map((a) => `- "${a.name}" (ID: ${a.id}): ${a.description || 'Automated action sequence'}`).join('\n') + '\nTo trigger an automation, include [ACTION:TRIGGER_AUTOMATION:<automation_id>] in your reply.\n'
+      }
+      workflowInstructions += "\nOnly trigger a flow or automation if the user's intent clearly asks for or would benefit from it."
+    }
+
     const systemPrompt = buildSystemPrompt({
-      userPrompt: config.systemPrompt,
+      userPrompt: (config.systemPrompt || '') + workflowInstructions,
       mode: 'auto_reply',
       knowledge,
     })
@@ -203,14 +233,51 @@ export async function dispatchInboundToAiReply(
     }
     if (claimed !== true) return // lost the per-conversation cap race
 
-    await engineSendText({
-      accountId,
-      userId: configOwnerUserId,
-      conversationId,
-      contactId,
-      text,
-      aiGenerated: true,
-    })
+    const flowMatch = text.match(/\[ACTION:TRIGGER_FLOW:([a-zA-Z0-9_-]+)\]/i)
+    const autoMatch = text.match(/\[ACTION:TRIGGER_AUTOMATION:([a-zA-Z0-9_-]+)\]/i)
+
+    const cleanText = text
+      .replace(/\[ACTION:TRIGGER_FLOW:[a-zA-Z0-9_-]+\]/gi, '')
+      .replace(/\[ACTION:TRIGGER_AUTOMATION:[a-zA-Z0-9_-]+\]/gi, '')
+      .trim()
+
+    if (cleanText) {
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: cleanText,
+        aiGenerated: true,
+      })
+    }
+
+    if (flowMatch?.[1]) {
+      try {
+        await startFlowDirectly(db, {
+          flowId: flowMatch[1],
+          accountId,
+          contactId,
+          conversationId,
+          origin: 'ai_auto_reply',
+        })
+      } catch (flowErr) {
+        console.warn('[ai auto-reply] startFlowDirectly failed:', flowErr)
+      }
+    }
+
+    if (autoMatch?.[1]) {
+      try {
+        await dispatchAutomationDirectly(db, {
+          automationId: autoMatch[1],
+          accountId,
+          contactId,
+          conversationId,
+        })
+      } catch (autoErr) {
+        console.warn('[ai auto-reply] dispatchAutomationDirectly failed:', autoErr)
+      }
+    }
   } catch (err) {
     console.error('[ai auto-reply] dispatch failed:', err)
   }

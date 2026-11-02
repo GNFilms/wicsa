@@ -173,6 +173,42 @@ export interface SetTagNodeConfig {
   next_node_key: string;
 }
 
+export interface CarouselCard {
+  id: string;
+  title: string;
+  description?: string;
+  media_url?: string;
+  media_type?: "image" | "video";
+  buttons: Array<{
+    reply_id: string;
+    title: string;
+    next_node_key: string;
+  }>;
+}
+
+export interface SendCarouselNodeConfig {
+  /** Optional body or introductory text sent before or with carousel. */
+  text?: string;
+  /** 1-10 carousel cards with media and buttons. */
+  cards: CarouselCard[];
+}
+
+export interface DelayNodeConfig {
+  /** Delay duration in seconds (1 to 60). */
+  seconds: number;
+  /** Target node to advance to after the delay. */
+  next_node_key: string;
+}
+
+export interface RunAutomationNodeConfig {
+  /** Target automation UUID. */
+  automation_id: string;
+  /** Display label for the automation. */
+  automation_name?: string;
+  /** Target node to advance to after triggering automation. */
+  next_node_key?: string;
+}
+
 // Terminal nodes carry no config — they just stop the run.
 export type EndNodeConfig = Record<string, never>;
 
@@ -190,6 +226,9 @@ export type FlowNodeConfig =
   | { node_type: "send_buttons"; config: SendButtonsNodeConfig }
   | { node_type: "send_list"; config: SendListNodeConfig }
   | { node_type: "send_media"; config: SendMediaNodeConfig }
+  | { node_type: "send_carousel"; config: SendCarouselNodeConfig }
+  | { node_type: "delay"; config: DelayNodeConfig }
+  | { node_type: "run_automation"; config: RunAutomationNodeConfig }
   | { node_type: "collect_input"; config: CollectInputNodeConfig }
   | { node_type: "condition"; config: ConditionNodeConfig }
   | { node_type: "set_tag"; config: SetTagNodeConfig }

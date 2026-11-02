@@ -53,12 +53,16 @@ import {
   type ParsedInbound,
   type SendButtonsNodeConfig,
   type SendListNodeConfig,
+  type SendCarouselNodeConfig,
   type SendMediaNodeConfig,
   type SendMessageNodeConfig,
   type SetTagNodeConfig,
   type StartNodeConfig,
   type KeywordTriggerConfig,
+  type DelayNodeConfig,
+  type RunAutomationNodeConfig,
 } from "./types";
+import { dispatchAutomationDirectly } from "@/lib/automations/engine";
 
 // ============================================================
 // Pure helpers — extracted so engine.test.ts can exercise them
@@ -83,6 +87,14 @@ export function matchReplyId(
     for (const section of cfg.sections ?? []) {
       const hit = section.rows?.find((r) => r.reply_id === reply_id);
       if (hit) return hit.next_node_key;
+    }
+    return null;
+  }
+  if (node.node_type === "send_carousel") {
+    const cfg = node.config as unknown as SendCarouselNodeConfig;
+    for (const card of cfg.cards ?? []) {
+      const hit = card.buttons?.find((b) => b.reply_id === reply_id);
+      if (hit) return hit.next_node_key ?? null;
     }
     return null;
   }
@@ -136,6 +148,27 @@ export function matchTextToInteractiveNode(
           row.title.trim().toLowerCase() === clean
         ) {
           return row.next_node_key || null;
+        }
+      }
+    }
+    return null;
+  }
+
+  if (node.node_type === "send_carousel") {
+    const cfg = node.config as unknown as SendCarouselNodeConfig;
+    let flatIndex = 1;
+    const num = parseInt(clean, 10);
+    for (const card of cfg.cards ?? []) {
+      for (const b of card.buttons ?? []) {
+        if (!isNaN(num) && num === flatIndex) {
+          return b.next_node_key || null;
+        }
+        flatIndex++;
+        if (
+          b.reply_id.toLowerCase() === clean ||
+          b.title.trim().toLowerCase() === clean
+        ) {
+          return b.next_node_key || null;
         }
       }
     }
@@ -196,7 +229,9 @@ export function isAutoAdvancing(node_type: string): boolean {
     node_type === "send_message" ||
     node_type === "send_media" ||
     node_type === "condition" ||
-    node_type === "set_tag"
+    node_type === "set_tag" ||
+    node_type === "delay" ||
+    node_type === "run_automation"
   );
 }
 
@@ -205,6 +240,7 @@ export function isSuspending(node_type: string): boolean {
   return (
     node_type === "send_buttons" ||
     node_type === "send_list" ||
+    node_type === "send_carousel" ||
     node_type === "collect_input"
   );
 }
@@ -582,6 +618,96 @@ async function sendListAndSuspend(
       last_prompt_message_id: (msg as { id: string } | null)?.id ?? null,
     })
     .eq("id", run.id);
+  return { outcome: "advanced", node_key: node.node_key };
+}
+
+async function sendCarouselAndSuspend(
+  db: AdminClient,
+  run: FlowRunRow,
+  node: FlowNodeRow,
+): Promise<{ outcome: "advanced"; node_key: string }> {
+  const cfg = node.config as unknown as SendCarouselNodeConfig;
+  const cards = cfg.cards ?? [];
+  let lastWhatsappMsgId = "";
+
+  if (cfg.body_text?.trim()) {
+    try {
+      const { whatsapp_message_id } = await engineSendText({
+        accountId: run.account_id,
+        userId: run.user_id,
+        conversationId: run.conversation_id!,
+        contactId: run.contact_id!,
+        text: interpolateVars(cfg.body_text, run.vars),
+      });
+      lastWhatsappMsgId = whatsapp_message_id;
+    } catch (err) {
+      console.warn("[flows/engine] send_carousel body_text send failed:", err);
+    }
+  }
+
+  for (const card of cards) {
+    const titleText = card.title ? interpolateVars(card.title, run.vars) : "";
+    const descText = card.description ? interpolateVars(card.description, run.vars) : "";
+    const caption = [titleText, descText].filter(Boolean).join("\n\n");
+
+    if (card.media_url) {
+      try {
+        const { whatsapp_message_id } = await engineSendMedia({
+          accountId: run.account_id,
+          userId: run.user_id,
+          conversationId: run.conversation_id!,
+          contactId: run.contact_id!,
+          kind: card.media_type || "image",
+          link: card.media_url,
+          caption: caption || undefined,
+        });
+        lastWhatsappMsgId = whatsapp_message_id;
+      } catch (err) {
+        console.warn("[flows/engine] send_carousel card media send failed:", err);
+      }
+    }
+
+    if (card.buttons && card.buttons.length > 0) {
+      const validButtons = card.buttons.slice(0, 3).map((b) => ({
+        id: b.reply_id,
+        title: interpolateVars(b.title, run.vars).slice(0, 20),
+      }));
+      try {
+        const { whatsapp_message_id } = await engineSendInteractiveButtons({
+          accountId: run.account_id,
+          userId: run.user_id,
+          conversationId: run.conversation_id!,
+          contactId: run.contact_id!,
+          bodyText: titleText || "Choose an option:",
+          buttons: validButtons,
+        });
+        lastWhatsappMsgId = whatsapp_message_id;
+      } catch (err) {
+        console.warn("[flows/engine] send_carousel card buttons send failed:", err);
+      }
+    }
+  }
+
+  await logEvent(db, run.id, "message_sent", node.node_key, {
+    node_type: "send_carousel",
+    card_count: cards.length,
+    whatsapp_message_id: lastWhatsappMsgId,
+  });
+
+  if (lastWhatsappMsgId) {
+    const { data: msg } = await db
+      .from("messages")
+      .select("id")
+      .eq("message_id", lastWhatsappMsgId)
+      .maybeSingle();
+    await db
+      .from("flow_runs")
+      .update({
+        last_prompt_message_id: (msg as { id: string } | null)?.id ?? null,
+      })
+      .eq("id", run.id);
+  }
+
   return { outcome: "advanced", node_key: node.node_key };
 }
 
@@ -964,6 +1090,63 @@ async function advanceFromNodeKey(
       }
       return { outcome: "advanced" };
     }
+    if (node.node_type === "send_carousel") {
+      try {
+        await sendCarouselAndSuspend(db, run, node);
+      } catch (err) {
+        await logEvent(db, run.id, "error", node.node_key, {
+          reason: "send_carousel_failed",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+        await endRun(db, run.id, "failed", "send_carousel_failed");
+        return { outcome: "completed" };
+      }
+      const advanced = await advanceCurrentNodeKey(
+        db,
+        run.id,
+        run.current_node_key,
+        node.node_key,
+      );
+      if (!advanced) {
+        await logEvent(db, run.id, "error", node.node_key, {
+          reason: "lost_race_during_advance",
+        });
+      }
+      return { outcome: "advanced" };
+    }
+    if (node.node_type === "delay") {
+      const cfg = node.config as unknown as DelayNodeConfig;
+      const secs = Math.min(Math.max(Number(cfg.seconds) || 1, 1), 60);
+      await logEvent(db, run.id, "node_entered", node.node_key, {
+        delay_seconds: secs,
+      });
+      await new Promise((resolve) => setTimeout(resolve, secs * 1000));
+      currentKey = cfg.next_node_key;
+      continue;
+    }
+    if (node.node_type === "run_automation") {
+      const cfg = node.config as unknown as RunAutomationNodeConfig;
+      if (cfg.automation_id) {
+        try {
+          await dispatchAutomationDirectly(db, {
+            automationId: cfg.automation_id,
+            accountId: run.account_id,
+            contactId: run.contact_id!,
+            conversationId: run.conversation_id ?? undefined,
+          });
+          await logEvent(db, run.id, "node_entered", node.node_key, {
+            triggered_automation_id: cfg.automation_id,
+          });
+        } catch (err) {
+          await logEvent(db, run.id, "error", node.node_key, {
+            reason: "run_automation_failed",
+            detail: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      currentKey = cfg.next_node_key;
+      continue;
+    }
     if (node.node_type === "handoff") {
       await executeHandoff(db, run, node);
       return { outcome: "handed_off" };
@@ -1128,13 +1311,15 @@ async function handleReplyForActiveRun(
   if (
     message.kind === "interactive_reply" &&
     (currentNode.node_type === "send_buttons" ||
-      currentNode.node_type === "send_list")
+      currentNode.node_type === "send_list" ||
+      currentNode.node_type === "send_carousel")
   ) {
     matched = matchReplyId(currentNode, message.reply_id);
   } else if (
     message.kind === "text" &&
     (currentNode.node_type === "send_buttons" ||
-      currentNode.node_type === "send_list")
+      currentNode.node_type === "send_list" ||
+      currentNode.node_type === "send_carousel")
   ) {
     matched = matchTextToInteractiveNode(currentNode, message.text);
   } else if (
@@ -1221,6 +1406,8 @@ async function handleReplyForActiveRun(
         await sendButtonsAndSuspend(db, run, currentNode);
       } else if (currentNode.node_type === "send_list") {
         await sendListAndSuspend(db, run, currentNode);
+      } else if (currentNode.node_type === "send_carousel") {
+        await sendCarouselAndSuspend(db, run, currentNode);
       } else if (currentNode.node_type === "collect_input") {
         // Customer typed something we couldn't accept (empty after trim,
         // or var_key missing — rare). Re-send the prompt so they try again.
@@ -1326,3 +1513,81 @@ async function startNewRun(
     outcome: outcome.outcome === "advanced" ? "started" : outcome.outcome,
   };
 }
+
+/**
+ * Direct entry point for starting a flow programmatically.
+ * Used by automations ("run_flow" step), AI Auto-Reply actions, or API routes.
+ */
+export async function startFlowDirectly(
+  db: AdminClient,
+  params: {
+    flowId: string;
+    accountId: string;
+    contactId: string;
+    conversationId?: string;
+    origin?: string;
+  },
+): Promise<{ success: boolean; flowRunId?: string; error?: string }> {
+  try {
+    const flow = await loadFlow(db, params.flowId);
+    if (!flow || flow.status !== "published") {
+      return { success: false, error: "flow_not_published_or_not_found" };
+    }
+
+    const activeRun = await loadActiveRunForContact(
+      db,
+      params.accountId,
+      params.contactId,
+    );
+    if (activeRun) {
+      return {
+        success: false,
+        error: "contact_already_has_active_run",
+        flowRunId: activeRun.id,
+      };
+    }
+
+    const nodes = await loadFlowNodes(db, flow.id);
+    if (!flow.entry_node_id || !nodes.has(flow.entry_node_id)) {
+      return { success: false, error: "missing_entry_node" };
+    }
+
+    const { data: inserted, error: insErr } = await db
+      .from("flow_runs")
+      .insert({
+        flow_id: flow.id,
+        account_id: params.accountId,
+        user_id: flow.user_id,
+        contact_id: params.contactId,
+        conversation_id: params.conversationId ?? null,
+        status: "active",
+        current_node_key: flow.entry_node_id,
+      })
+      .select("*")
+      .maybeSingle();
+
+    if (insErr || !inserted) {
+      return { success: false, error: insErr?.message || "insert_failed" };
+    }
+
+    const run = inserted as FlowRunRow;
+    await logEvent(db, run.id, "started", flow.entry_node_id, {
+      flow_id: flow.id,
+      origin: params.origin || "direct_dispatch",
+    });
+
+    await db.rpc("increment_flow_execution_count", {
+      p_flow_id: flow.id,
+    });
+
+    await advanceFromNodeKey(db, run, flow.entry_node_id, nodes);
+    return { success: true, flowRunId: run.id };
+  } catch (err) {
+    console.error("[flows] startFlowDirectly error:", err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+

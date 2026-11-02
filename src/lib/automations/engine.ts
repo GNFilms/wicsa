@@ -10,7 +10,9 @@ import type {
   SendMessageStepConfig,
   SendButtonsStepConfig,
   SendListStepConfig,
+  SendMediaStepConfig,
   SendTemplateStepConfig,
+  RunFlowStepConfig,
   SendWebhookStepConfig,
   TagStepConfig,
   UpdateContactFieldStepConfig,
@@ -22,6 +24,8 @@ import { supabaseAdmin } from './admin-client'
 import { addContactTagIfAbsent } from '@/lib/contacts/tag-write'
 import { MAX_TAG_CHAIN_DEPTH, getTagChainDepth } from '@/lib/contacts/tag-chain'
 import { engineSendText, engineSendTemplate, engineSendInteractive } from './meta-send'
+import { engineSendMedia } from '@/lib/flows/meta-send'
+import { startFlowDirectly } from '@/lib/flows/engine'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { isDeliverableUrl } from '@/lib/webhooks/ssrf'
 
@@ -115,6 +119,53 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<vo
     }
   } catch (err) {
     console.error('[automations] dispatch failed:', err)
+  }
+}
+
+/**
+ * Programmatically dispatch an automation directly.
+ * Used by Flows ("run_automation" node) and AI Auto-Reply actions.
+ */
+export async function dispatchAutomationDirectly(
+  db: ReturnType<typeof supabaseAdmin>,
+  params: {
+    automationId: string
+    accountId: string
+    contactId?: string | null
+    conversationId?: string
+    context?: AutomationContext
+  },
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { data: auto, error } = await db
+      .from('automations')
+      .select('*')
+      .eq('id', params.automationId)
+      .eq('account_id', params.accountId)
+      .maybeSingle()
+
+    if (error || !auto) {
+      return { success: false, error: error?.message || 'automation_not_found' }
+    }
+
+    const input: DispatchInput = {
+      accountId: params.accountId,
+      triggerType: auto.trigger_type,
+      contactId: params.contactId ?? null,
+      context: {
+        conversation_id: params.conversationId,
+        ...(params.context ?? {}),
+      },
+    }
+
+    await executeAutomation(auto as Automation, input)
+    return { success: true }
+  } catch (err) {
+    console.error('[automations] dispatchAutomationDirectly error:', err)
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
   }
 }
 
@@ -428,6 +479,43 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         params,
       })
       return `template sent via Meta (${whatsapp_message_id})`
+    }
+
+    case 'send_media': {
+      const cfg = step.step_config as SendMediaStepConfig
+      if (!args.contactId) throw new Error('send_media needs a contact')
+      if (!cfg.media_url) throw new Error('send_media needs a media_url')
+      const conversationId = await resolveConversationId(args)
+      const caption = cfg.caption ? interpolate(cfg.caption, args) : undefined
+      const { whatsapp_message_id } = await engineSendMedia({
+        accountId: args.automation.account_id,
+        userId: args.automation.user_id,
+        conversationId,
+        contactId: args.contactId,
+        kind: cfg.media_type || 'image',
+        link: cfg.media_url,
+        caption,
+        filename: cfg.filename,
+      })
+      return `media (${cfg.media_type}) sent via Meta (${whatsapp_message_id})`
+    }
+
+    case 'run_flow': {
+      const cfg = step.step_config as RunFlowStepConfig
+      if (!args.contactId) throw new Error('run_flow needs a contact')
+      if (!cfg.flow_id) throw new Error('run_flow needs a flow_id')
+      const conversationId = await resolveConversationId(args)
+      const res = await startFlowDirectly(db, {
+        flowId: cfg.flow_id,
+        accountId: args.automation.account_id,
+        contactId: args.contactId,
+        conversationId,
+        origin: `automation:${args.automation.id}`,
+      })
+      if (!res.success) {
+        throw new Error(`run_flow failed: ${res.error}`)
+      }
+      return `flow started (${res.flowRunId})`
     }
 
     case 'add_tag': {

@@ -52,7 +52,11 @@ function getAllFilesRecursively(dir: string, baseDir = dir): { path: string; siz
   return results;
 }
 
-async function verifyOwnerAccess() {
+type AuthResult =
+  | { ok: true; user: NonNullable<Awaited<ReturnType<Awaited<ReturnType<typeof createClient>>['auth']['getUser']>>['data']['user']>; role: string }
+  | { ok: false; status: number; error: string };
+
+async function verifyOwnerAccess(): Promise<AuthResult> {
   const supabase = await createClient();
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
   if (authErr || !user) {
@@ -173,6 +177,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid or empty file.' }, { status: 400 });
     }
 
+    if (process.env.VERCEL === '1') {
+      return NextResponse.json(
+        {
+          error:
+            'Direct in-app ZIP installation is designed for self-hosted / VPS / Docker deployments. Because this app is running on Vercel (immutable serverless filesystem), please push the updated files to your GitHub repository to trigger an automatic deployment.',
+        },
+        { status: 400 }
+      );
+    }
+
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wicsa-update-'));
     const zipPath = path.join(tempDir, 'update.zip');
     fs.writeFileSync(zipPath, buffer);
@@ -199,7 +213,7 @@ export async function POST(req: NextRequest) {
     }
 
     const fileDetails: ExtractedFileInfo[] = extractedFiles.map((f) => {
-      const targetPath = path.join(APP_ROOT, f.path);
+      const targetPath = path.join(/*turbopackIgnore: true*/ APP_ROOT, f.path);
       return {
         path: f.path,
         size: f.size,
@@ -248,7 +262,7 @@ export async function POST(req: NextRequest) {
 
     let backedUpCount = 0;
     for (const f of fileDetails) {
-      const livePath = path.join(APP_ROOT, f.path);
+      const livePath = path.join(/*turbopackIgnore: true*/ APP_ROOT, f.path);
       if (fs.existsSync(livePath)) {
         const destBackup = path.join(backupFolder, f.path);
         fs.mkdirSync(path.dirname(destBackup), { recursive: true });
@@ -268,7 +282,7 @@ export async function POST(req: NextRequest) {
       if (norm.startsWith('.env') || norm === '.git' || norm.startsWith('.git/')) continue;
 
       const srcPath = path.join(extractedDir, f.path);
-      const destPath = path.join(APP_ROOT, f.path);
+      const destPath = path.join(/*turbopackIgnore: true*/ APP_ROOT, f.path);
 
       fs.mkdirSync(path.dirname(destPath), { recursive: true });
       fs.copyFileSync(srcPath, destPath);

@@ -570,7 +570,9 @@ export type AutomationStepType =
   | 'send_message'
   | 'send_buttons'
   | 'send_list'
+  | 'send_media'
   | 'send_template'
+  | 'run_flow'
   | 'add_tag'
   | 'remove_tag'
   | 'assign_conversation'
@@ -692,11 +694,24 @@ export interface SendWebhookStepConfig {
   body_template?: string;
 }
 
+export interface SendMediaStepConfig {
+  media_type: 'image' | 'video' | 'audio' | 'document';
+  media_url: string;
+  caption?: string;
+  filename?: string;
+}
+
+export interface RunFlowStepConfig {
+  flow_id: string;
+}
+
 export type AutomationStepConfig =
   | SendMessageStepConfig
   | SendButtonsStepConfig
   | SendListStepConfig
+  | SendMediaStepConfig
   | SendTemplateStepConfig
+  | RunFlowStepConfig
   | TagStepConfig
   | AssignConversationStepConfig
   | UpdateContactFieldStepConfig

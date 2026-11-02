@@ -48,7 +48,9 @@ export function deriveCanvasEdges(nodes: BuilderNode[]): CanvasEdge[] {
       case "send_message":
       case "send_media":
       case "collect_input":
-      case "set_tag": {
+      case "set_tag":
+      case "delay":
+      case "run_automation": {
         const next = (cfg as { next_node_key?: string }).next_node_key;
         if (next && knownKeys.has(next)) {
           edges.push({
@@ -57,6 +59,33 @@ export function deriveCanvasEdges(nodes: BuilderNode[]): CanvasEdge[] {
             target: next,
             sourceHandle: "next",
           });
+        }
+        break;
+      }
+
+      case "send_carousel": {
+        const cards = Array.isArray((cfg as { cards?: unknown }).cards)
+          ? ((cfg as { cards: Array<Record<string, unknown>> }).cards)
+          : [];
+        for (const card of cards) {
+          const buttons = Array.isArray(card.buttons)
+            ? (card.buttons as Array<Record<string, unknown>>)
+            : [];
+          for (const btn of buttons) {
+            const replyId =
+              typeof btn.reply_id === "string" ? btn.reply_id : null;
+            const next =
+              typeof btn.next_node_key === "string" ? btn.next_node_key : null;
+            const title = typeof btn.title === "string" ? btn.title : null;
+            if (!replyId || !next || !knownKeys.has(next)) continue;
+            edges.push({
+              id: `${node.node_key}--button:${replyId}--${next}`,
+              source: node.node_key,
+              target: next,
+              sourceHandle: `button:${replyId}`,
+              label: title ?? replyId,
+            });
+          }
         }
         break;
       }
@@ -179,7 +208,32 @@ export function outgoingSlots(node: BuilderNode): OutgoingSlot[] {
     case "send_media":
     case "collect_input":
     case "set_tag":
+    case "delay":
+    case "run_automation":
       return [{ id: "next", label: "Next" }];
+
+    case "send_carousel": {
+      const cards = Array.isArray((cfg as { cards?: unknown }).cards)
+        ? ((cfg as { cards: Array<Record<string, unknown>> }).cards)
+        : [];
+      const slots: OutgoingSlot[] = [];
+      for (const card of cards) {
+        const buttons = Array.isArray(card.buttons)
+          ? (card.buttons as Array<Record<string, unknown>>)
+          : [];
+        for (const btn of buttons) {
+          const replyId = typeof btn.reply_id === "string" ? btn.reply_id : null;
+          if (!replyId) continue;
+          const title = typeof btn.title === "string" ? btn.title : null;
+          const cardTitle = typeof card.title === "string" && card.title ? card.title : null;
+          slots.push({
+            id: `button:${replyId}`,
+            label: cardTitle && title ? `${cardTitle}: ${title}` : title ?? replyId,
+          });
+        }
+      }
+      return slots.length > 0 ? slots : [{ id: "next", label: "Next" }];
+    }
 
     case "condition":
       return [
@@ -253,8 +307,36 @@ export function applyEdgeConnection(
     case "send_media":
     case "collect_input":
     case "set_tag":
+    case "delay":
+    case "run_automation":
       if (sourceHandle === "next") return { next_node_key: targetKey };
       return null;
+
+    case "send_carousel": {
+      if (sourceHandle === "next") return { next_node_key: targetKey };
+      if (!sourceHandle.startsWith("button:")) return null;
+      const replyId = sourceHandle.slice("button:".length);
+      const cards = Array.isArray((node.config as { cards?: unknown }).cards)
+        ? ((node.config as { cards: Array<Record<string, unknown>> }).cards)
+        : [];
+      let matched = false;
+      const updatedCards = cards.map((c) => {
+        const buttons = Array.isArray(c.buttons)
+          ? (c.buttons as Array<Record<string, unknown>>)
+          : [];
+        return {
+          ...c,
+          buttons: buttons.map((b) => {
+            if (b.reply_id === replyId) {
+              matched = true;
+              return { ...b, next_node_key: targetKey };
+            }
+            return b;
+          }),
+        };
+      });
+      return matched ? { cards: updatedCards } : null;
+    }
 
     case "condition":
       if (sourceHandle === "true") return { true_next: targetKey };
@@ -346,10 +428,33 @@ function patchedConfigWithoutKey(
     case "send_message":
     case "send_media":
     case "collect_input":
-    case "set_tag": {
+    case "set_tag":
+    case "delay":
+    case "run_automation": {
       const next = (cfg as { next_node_key?: string }).next_node_key;
       if (next !== deletedKey) return null;
       return { ...cfg, next_node_key: "" };
+    }
+
+    case "send_carousel": {
+      const cards = Array.isArray((cfg as { cards?: unknown }).cards)
+        ? ((cfg as { cards: Array<Record<string, unknown>> }).cards)
+        : [];
+      let dirty = false;
+      const nextCards = cards.map((c) => {
+        const buttons = Array.isArray(c.buttons)
+          ? (c.buttons as Array<Record<string, unknown>>)
+          : [];
+        if (!buttons.some((b) => b.next_node_key === deletedKey)) return c;
+        dirty = true;
+        return {
+          ...c,
+          buttons: buttons.map((b) =>
+            b.next_node_key === deletedKey ? { ...b, next_node_key: "" } : b,
+          ),
+        };
+      });
+      return dirty ? { ...cfg, cards: nextCards } : null;
     }
 
     case "condition": {
