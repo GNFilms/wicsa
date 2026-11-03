@@ -40,6 +40,11 @@ interface Profile {
   custom_role_id?: string | null;
   custom_role_name?: string | null;
   customRole?: CustomRole | null;
+  pipeline_id?: string | null;
+  pipeline_name?: string | null;
+  stage_id?: string | null;
+  stage_name?: string | null;
+  label?: string | null;
 }
 
 interface AccountSummary {
@@ -162,6 +167,11 @@ interface ProfileRow {
   account_role: string | null;
   custom_role_id?: string | null;
   custom_role_name?: string | null;
+  pipeline_id?: string | null;
+  pipeline_name?: string | null;
+  stage_id?: string | null;
+  stage_name?: string | null;
+  label?: string | null;
 }
 
 /**
@@ -308,6 +318,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           custom_role_id: data.custom_role_id ?? null,
           custom_role_name: data.custom_role_name ?? null,
           customRole: customRoleRow,
+          pipeline_id: data.pipeline_id ?? null,
+          pipeline_name: data.pipeline_name ?? null,
+          stage_id: data.stage_id ?? null,
+          stage_name: data.stage_name ?? null,
+          label: data.label ?? null,
         });
         setAccount(accountRow);
         if (!data.account_id || !accountRole) {

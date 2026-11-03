@@ -85,12 +85,13 @@ export default function PipelinesPage() {
     const all = data ?? [];
 
     // Filter assigned pipelines for non-admin team members if assigned to a specific pipeline
-    if (!isOwner && !isAdmin && profile?.pipeline_id) {
-      const filtered = all.filter((p) => p.id === profile.pipeline_id);
+    const assignedPipelineId = (profile as { pipeline_id?: string | null })?.pipeline_id;
+    if (!isOwner && !isAdmin && assignedPipelineId) {
+      const filtered = all.filter((p) => p.id === assignedPipelineId);
       return filtered.length > 0 ? filtered : all;
     }
     return all;
-  }, [supabase, isOwner, isAdmin, profile?.pipeline_id]);
+  }, [supabase, isOwner, isAdmin, (profile as { pipeline_id?: string | null })?.pipeline_id]);
 
   const loadStages = useCallback(
     async (pipelineId: string) => {
