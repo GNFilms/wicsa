@@ -11,7 +11,12 @@ import {
   type ReactNode,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { User } from "@supabase/supabase-js";
+
+export interface User {
+  id: string;
+  email?: string | null;
+  [key: string]: any;
+}
 import { DEFAULT_CURRENCY } from "@/lib/currency";
 import {
   canEditSettings as canEditSettingsFor,
@@ -373,7 +378,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const {
           data: { session },
           error,
-        } = await supabase.auth.getSession();
+        } = await (supabase.auth as any).getSession();
 
         if (error) console.error("[AuthProvider] getSession error:", error.message);
 
@@ -405,7 +410,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = (supabase.auth as any).onAuthStateChange((_event: any, session: any) => {
       if (!mounted) return;
       const currentUser = session?.user ?? null;
       setUser(currentUser);
@@ -433,7 +438,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     const supabase = createClient();
-    await supabase.auth.signOut();
+    await (supabase.auth as any).signOut();
     setUser(null);
     setProfile(null);
     setAccount(null);

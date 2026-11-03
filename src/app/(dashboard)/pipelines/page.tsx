@@ -120,7 +120,7 @@ export default function PipelinesPage() {
   const seedDefaultPipeline = useCallback(async (): Promise<Pipeline | null> => {
     const {
       data: { session },
-    } = await supabase.auth.getSession();
+    } = await (supabase.auth as any).getSession();
     const user = session?.user;
     if (!user) return null;
     // pipelines.account_id is NOT NULL post-017 with no DB default.
@@ -262,7 +262,7 @@ export default function PipelinesPage() {
 
     const {
       data: { session },
-    } = await supabase.auth.getSession();
+    } = await (supabase.auth as any).getSession();
     const user = session?.user;
     if (!user) {
       setCreating(false);

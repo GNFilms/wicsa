@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { drainDuePendingExecutions } from '@/lib/automations/engine'
 
+declare const process: any
+
 export const dynamic = 'force-dynamic'
 
 function isAuthorized(request: Request): boolean {

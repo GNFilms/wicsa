@@ -26,3 +26,4 @@ ALTER TABLE flow_nodes
     'http_fetch',
     'end'
   ));
+
