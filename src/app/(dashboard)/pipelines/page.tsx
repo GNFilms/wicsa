@@ -50,7 +50,7 @@ export default function PipelinesPage() {
   const supabase = createClient();
   const canEditSettings = useCan("edit-settings");
   const canCreateDeals = useCan("send-messages");
-  const { accountId } = useAuth();
+  const { accountId, profile, isOwner, isAdmin } = useAuth();
 
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>("");
@@ -82,8 +82,15 @@ export default function PipelinesPage() {
       console.error("Failed to load pipelines:", error.message);
       return [];
     }
-    return data ?? [];
-  }, [supabase]);
+    const all = data ?? [];
+
+    // Filter assigned pipelines for non-admin team members if assigned to a specific pipeline
+    if (!isOwner && !isAdmin && profile?.pipeline_id) {
+      const filtered = all.filter((p) => p.id === profile.pipeline_id);
+      return filtered.length > 0 ? filtered : all;
+    }
+    return all;
+  }, [supabase, isOwner, isAdmin, profile?.pipeline_id]);
 
   const loadStages = useCallback(
     async (pipelineId: string) => {

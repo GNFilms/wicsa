@@ -69,6 +69,16 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
       }
       break
     }
+    case 'send_media':
+      if (!nonEmpty(c.media_url)) {
+        issues.push({ path: `${path}.media_url`, message: 'media URL or file is required' })
+      }
+      break
+    case 'run_flow':
+      if (!nonEmpty(c.flow_id)) {
+        issues.push({ path: `${path}.flow_id`, message: 'flow is required' })
+      }
+      break
     case 'send_template':
       if (!nonEmpty(c.template_name)) {
         issues.push({ path: `${path}.template_name`, message: 'template name is required' })

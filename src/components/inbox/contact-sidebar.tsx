@@ -20,7 +20,8 @@ import {
   Loader2,
   Building2,
   Save,
-  CheckCircle2,
+  GitBranch,
+  TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,14 +43,22 @@ interface ContactSidebarProps {
 }
 
 const PRESET_TAG_COLORS = [
-  "#10b981", // Emerald
-  "#06b6d4", // Cyan
-  "#3b82f6", // Blue
-  "#8b5cf6", // Purple
-  "#ec4899", // Pink
-  "#f59e0b", // Amber
   "#ef4444", // Red
+  "#f97316", // Orange
+  "#f59e0b", // Amber
+  "#eab308", // Yellow
+  "#84cc16", // Lime
+  "#10b981", // Emerald
   "#14b8a6", // Teal
+  "#06b6d4", // Cyan
+  "#0ea5e9", // Sky
+  "#3b82f6", // Blue
+  "#6366f1", // Indigo
+  "#8b5cf6", // Violet
+  "#a855f7", // Purple
+  "#ec4899", // Pink
+  "#f43f5e", // Rose
+  "#64748b", // Slate
 ];
 
 export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProps) {
@@ -77,6 +86,16 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const [editCustomValues, setEditCustomValues] = useState<Record<string, string>>({});
+
+  // Pipeline shortcuts state
+  const [pipelines, setPipelines] = useState<{ id: string; name: string }[]>([]);
+  const [stages, setStages] = useState<Record<string, { id: string; name: string; color: string }[]>>({});
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string>("");
+  const [selectedStageId, setSelectedStageId] = useState<string>("");
+  const [dealTitle, setDealTitle] = useState<string>("");
+  const [dealValue, setDealValue] = useState<string>("0");
+  const [addingPipelineDeal, setAddingPipelineDeal] = useState(false);
+  const [pipelinePopoverOpen, setPipelinePopoverOpen] = useState(false);
 
   // Tag popover state
   const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
@@ -129,6 +148,14 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
         .from("contact_custom_values")
         .select("*")
         .eq("contact_id", contact.id),
+      supabase
+        .from("pipelines")
+        .select("id, name")
+        .order("name", { ascending: true }),
+      supabase
+        .from("pipeline_stages")
+        .select("id, pipeline_id, name, color, position")
+        .order("position", { ascending: true }),
     ]);
 
     if (dealsRes.data) setDeals(dealsRes.data);
@@ -152,7 +179,23 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
       setCustomValues(map);
       setEditCustomValues(map);
     }
-  }, [contact?.id]);
+
+    if (pipeRes.data) {
+      setPipelines(pipeRes.data);
+      if (pipeRes.data.length > 0 && !selectedPipelineId) {
+        setSelectedPipelineId(pipeRes.data[0].id);
+      }
+    }
+
+    if (stagesRes.data) {
+      const stageMap: Record<string, { id: string; name: string; color: string }[]> = {};
+      stagesRes.data.forEach((st: { id: string; pipeline_id: string; name: string; color: string }) => {
+        if (!stageMap[st.pipeline_id]) stageMap[st.pipeline_id] = [];
+        stageMap[st.pipeline_id].push(st);
+      });
+      setStages(stageMap);
+    }
+  }, [contact?.id, selectedPipelineId]);
 
   useEffect(() => {
     fetchContactData();
@@ -350,6 +393,58 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
     }
     setAddingNote(false);
   }, [contact, newNote, accountId]);
+
+  const handleAddDealToPipeline = async () => {
+    if (!contact || !contact.id || !selectedPipelineId || !selectedStageId) {
+      toast.error("Please select a pipeline and stage");
+      return;
+    }
+
+    setAddingPipelineDeal(true);
+    const supabase = createClient();
+    const title = dealTitle.trim() || `${contact.name || contact.phone || "Lead"} - Deal`;
+    const numValue = parseFloat(dealValue) || 0;
+
+    // Check default assignee for stage if any
+    const { data: stageData } = await supabase
+      .from("pipeline_stages")
+      .select("default_assignee_id")
+      .eq("id", selectedStageId)
+      .maybeSingle();
+
+    const assignedTo = stageData?.default_assignee_id || user?.id;
+
+    const { data, error } = await supabase
+      .from("deals")
+      .insert({
+        title,
+        value: numValue,
+        contact_id: contact.id,
+        pipeline_id: selectedPipelineId,
+        stage_id: selectedStageId,
+        account_id: accountId,
+        user_id: user?.id,
+        assigned_to: assignedTo,
+        status: "open",
+      })
+      .select("*, stage:pipeline_stages(*)")
+      .single();
+
+    setAddingPipelineDeal(false);
+
+    if (error) {
+      toast.error(`Failed to add deal: ${error.message}`);
+      return;
+    }
+
+    if (data) {
+      setDeals((prev) => [data as Deal, ...prev]);
+      setDealTitle("");
+      setDealValue("0");
+      setPipelinePopoverOpen(false);
+      toast.success("Contact added to pipeline!");
+    }
+  };
 
   const availableTags = useMemo(() => {
     const assignedIds = new Set(tags.map((t) => t.id));
@@ -699,12 +794,97 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
             </div>
           </div>
 
-          {/* Active Deals Section */}
+          {/* Active Deals / Pipeline Section */}
           <div className="border-t border-border pt-4">
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-              <DollarSign className="h-3.5 w-3.5 text-emerald-500" />
-              <span>Deals</span>
-              <span className="text-[10px] text-muted-foreground">({deals.length})</span>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <GitBranch className="h-3.5 w-3.5 text-primary" />
+                <span>Pipelines & Deals</span>
+                <span className="text-[10px] text-muted-foreground">({deals.length})</span>
+              </div>
+
+              {/* Add to Pipeline Popover shortcut */}
+              <Popover open={pipelinePopoverOpen} onOpenChange={setPipelinePopoverOpen}>
+                <PopoverTrigger
+                  className="inline-flex items-center justify-center rounded-md font-medium h-6 px-2 text-[11px] text-primary hover:bg-primary/10 gap-1 transition-colors cursor-pointer"
+                >
+                  <Plus className="h-3 w-3" />
+                  Add to Pipeline
+                </PopoverTrigger>
+                <PopoverContent className="w-72 p-3 bg-card border border-border shadow-lg" align="end">
+                  <div className="space-y-3">
+                    <div className="border-b border-border pb-1.5">
+                      <span className="text-xs font-semibold text-foreground">Add to Pipeline</span>
+                      <p className="text-[10px] text-muted-foreground">Push contact to a sales pipeline stage</p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] text-muted-foreground">Select Pipeline</Label>
+                      <select
+                        value={selectedPipelineId}
+                        onChange={(e) => {
+                          setSelectedPipelineId(e.target.value);
+                          const st = stages[e.target.value];
+                          if (st && st.length > 0) setSelectedStageId(st[0].id);
+                        }}
+                        className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none"
+                      >
+                        {pipelines.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] text-muted-foreground">Select Stage</Label>
+                      <select
+                        value={selectedStageId}
+                        onChange={(e) => setSelectedStageId(e.target.value)}
+                        className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none"
+                      >
+                        <option value="">-- Choose Stage --</option>
+                        {(stages[selectedPipelineId] ?? []).map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] text-muted-foreground">Deal Title (Optional)</Label>
+                      <Input
+                        value={dealTitle}
+                        onChange={(e) => setDealTitle(e.target.value)}
+                        placeholder={`${contact.name || "Lead"} - Deal`}
+                        className="h-8 text-xs bg-background"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] text-muted-foreground">Value (₹)</Label>
+                      <Input
+                        type="number"
+                        value={dealValue}
+                        onChange={(e) => setDealValue(e.target.value)}
+                        placeholder="0"
+                        className="h-8 text-xs bg-background"
+                      />
+                    </div>
+
+                    <Button
+                      size="sm"
+                      className="w-full h-8 bg-primary hover:bg-primary/90 text-xs font-medium"
+                      onClick={handleAddDealToPipeline}
+                      disabled={addingPipelineDeal || !selectedPipelineId || !selectedStageId}
+                    >
+                      {addingPipelineDeal ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save to Pipeline"}
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="space-y-2">
               {deals.length === 0 ? (

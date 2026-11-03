@@ -19,6 +19,8 @@ describe("validateStepsForActivation", () => {
   it("passes a fully-populated step set", () => {
     const issues = validateStepsForActivation([
       { step_type: "send_message", step_config: { text: "hi" } },
+      { step_type: "send_media", step_config: { media_url: "https://example.com/audio.mp3" } },
+      { step_type: "run_flow", step_config: { flow_id: "flow-123" } },
       {
         step_type: "wait",
         step_config: { amount: 5, unit: "minutes" },
@@ -34,11 +36,15 @@ describe("validateStepsForActivation", () => {
       { step_type: "send_message", step_config: { text: "  " } },
       { step_type: "send_template", step_config: {} },
       { step_type: "add_tag", step_config: { tag_id: "" } },
+      { step_type: "send_media", step_config: { media_url: "" } },
+      { step_type: "run_flow", step_config: {} },
     ]);
     expect(issues.map((i) => i.path)).toEqual([
       "steps[0].text",
       "steps[1].template_name",
       "steps[2].tag_id",
+      "steps[3].media_url",
+      "steps[4].flow_id",
     ]);
   });
 

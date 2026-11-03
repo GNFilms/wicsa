@@ -62,6 +62,8 @@ export function CustomFieldsPanel() {
   const [fields, setFields] = useState<CustomField[]>([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState('');
+  const [newType, setNewType] = useState('text');
+  const [newOptionsText, setNewOptionsText] = useState('');
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -107,9 +109,19 @@ export function CustomFieldsPanel() {
     }
 
     setCreating(true);
+    let fieldOptions: Record<string, unknown> = {};
+    if (newType === 'dropdown' || newType === 'checklist') {
+      const opts = newOptionsText
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      fieldOptions = { options: opts };
+    }
+
     const { error } = await supabase.from('custom_fields').insert({
       field_name: name,
-      field_type: 'text',
+      field_type: newType,
+      field_options: fieldOptions,
       user_id: user.id,
       account_id: accountId,
     });
@@ -121,6 +133,8 @@ export function CustomFieldsPanel() {
     }
     toast.success(t('toastCreated', { name }));
     setNewName('');
+    setNewType('text');
+    setNewOptionsText('');
     await fetchFields();
   }
 
@@ -175,31 +189,47 @@ export function CustomFieldsPanel() {
   return (
     <div className="space-y-4">
       {/* Create */}
-      <div className="flex items-center gap-2">
-        <Input
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              void handleCreate();
-            }
-          }}
-          placeholder={t('fieldName')}
-          className="bg-muted text-foreground"
-        />
-        <Button
-          onClick={handleCreate}
-          disabled={creating || !newName.trim()}
-          className="bg-primary hover:bg-primary/90 text-primary-foreground shrink-0"
-        >
-          {creating ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <Plus className="size-4" />
-          )}
-          {t('addField')}
-        </Button>
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder={t('fieldName')}
+            className="flex-1 min-w-[140px] bg-muted text-foreground"
+          />
+          <select
+            value={newType}
+            onChange={(e) => setNewType(e.target.value)}
+            className="h-9 rounded-md border border-input bg-muted px-2.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="text">Text</option>
+            <option value="number">Number</option>
+            <option value="address">Address</option>
+            <option value="dropdown">Dropdown</option>
+            <option value="checklist">Checklist</option>
+            <option value="date">Date</option>
+          </select>
+          <Button
+            onClick={handleCreate}
+            disabled={creating || !newName.trim()}
+            className="bg-primary hover:bg-primary/90 text-primary-foreground shrink-0"
+          >
+            {creating ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Plus className="size-4" />
+            )}
+            {t('addField')}
+          </Button>
+        </div>
+        {(newType === 'dropdown' || newType === 'checklist') && (
+          <Input
+            value={newOptionsText}
+            onChange={(e) => setNewOptionsText(e.target.value)}
+            placeholder="Options separated by commas (e.g. Option A, Option B, Option C)"
+            className="text-xs bg-muted/60 text-foreground"
+          />
+        )}
       </div>
 
       {/* List */}
@@ -257,18 +287,23 @@ function FieldRow({
   }
 
   return (
-    <li className="flex items-center gap-2 px-3 py-2">
-      <Input
-        value={name}
-        disabled={busy}
-        onChange={(e) => setName(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') e.currentTarget.blur();
-        }}
-        aria-label={t('renameAria', { name: field.field_name })}
-        className="focus:border-primary h-8 border-transparent bg-transparent text-foreground hover:border-border"
-      />
+    <li className="flex items-center justify-between gap-2 px-3 py-2">
+      <div className="flex-1 flex items-center gap-2">
+        <Input
+          value={name}
+          disabled={busy}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+          }}
+          aria-label={t('renameAria', { name: field.field_name })}
+          className="focus:border-primary h-8 border-transparent bg-transparent text-foreground hover:border-border"
+        />
+        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase font-mono text-muted-foreground shrink-0">
+          {field.field_type || 'text'}
+        </span>
+      </div>
       <Button
         variant="ghost"
         size="icon-sm"

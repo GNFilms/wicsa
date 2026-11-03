@@ -26,6 +26,8 @@ import {
   Zap,
   UploadCloud,
   Music,
+  GitBranch,
+  PlayCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GatedButton } from "@/components/ui/gated-button";
@@ -173,6 +175,15 @@ export function MessageComposer({
   const [savingQuickReply, setSavingQuickReply] = useState(false);
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
 
+  // Flows and Automations quick-start modal
+  const [flowModalOpen, setFlowModalOpen] = useState(false);
+  const [autoModalOpen, setAutoModalOpen] = useState(false);
+  const [activeFlowsList, setActiveFlowsList] = useState<{ id: string; name: string }[]>([]);
+  const [activeAutomationsList, setActiveAutomationsList] = useState<{ id: string; name: string }[]>([]);
+  const [selectedFlowId, setSelectedFlowId] = useState("");
+  const [selectedAutomationId, setSelectedAutomationId] = useState("");
+  const [triggeringWorkflow, setTriggeringWorkflow] = useState(false);
+
   // Multi-media attachments state. `drafts` holds multiple uploaded samples; `busy` covers upload window.
   const [drafts, setDrafts] = useState<MediaDraft[]>([]);
   const [batchCaption, setBatchCaption] = useState("");
@@ -211,6 +222,105 @@ export function MessageComposer({
   const recorderRef = useRef<import("opus-recorder").default | null>(null);
   const cancelledRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Load active flows & automations
+  const loadActiveWorkflows = useCallback(async () => {
+    const supabase = createClient();
+    const [flowsRes, autoRes] = await Promise.all([
+      supabase.from("flows").select("id, name").eq("status", "active").order("name"),
+      supabase.from("automations").select("id, name").eq("is_active", true).order("name"),
+    ]);
+    if (flowsRes.data) {
+      setActiveFlowsList(flowsRes.data);
+      if (flowsRes.data.length > 0 && !selectedFlowId) setSelectedFlowId(flowsRes.data[0].id);
+    }
+    if (autoRes.data) {
+      setActiveAutomationsList(autoRes.data);
+      if (autoRes.data.length > 0 && !selectedAutomationId) setSelectedAutomationId(autoRes.data[0].id);
+    }
+  }, [selectedFlowId, selectedAutomationId]);
+
+  const handleStartFlow = async () => {
+    if (!selectedFlowId) {
+      toast.error("Please select a flow");
+      return;
+    }
+    setTriggeringWorkflow(true);
+    try {
+      const supabase = createClient();
+      const { data: conv } = await supabase
+        .from("conversations")
+        .select("contact_id")
+        .eq("id", conversationId)
+        .single();
+
+      if (!conv?.contact_id) {
+        toast.error("Contact not found for this conversation");
+        return;
+      }
+
+      const res = await fetch("/api/flows/trigger", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          flowId: selectedFlowId,
+          contactId: conv.contact_id,
+          conversationId,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to trigger flow");
+
+      toast.success("Flow initiated successfully!");
+      setFlowModalOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error initiating flow");
+    } finally {
+      setTriggeringWorkflow(false);
+    }
+  };
+
+  const handleStartAutomation = async () => {
+    if (!selectedAutomationId) {
+      toast.error("Please select an automation");
+      return;
+    }
+    setTriggeringWorkflow(true);
+    try {
+      const supabase = createClient();
+      const { data: conv } = await supabase
+        .from("conversations")
+        .select("contact_id")
+        .eq("id", conversationId)
+        .single();
+
+      if (!conv?.contact_id) {
+        toast.error("Contact not found for this conversation");
+        return;
+      }
+
+      const res = await fetch("/api/automations/trigger", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          automationId: selectedAutomationId,
+          contactId: conv.contact_id,
+          conversationId,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to trigger automation");
+
+      toast.success("Automation initiated successfully!");
+      setAutoModalOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error initiating automation");
+    } finally {
+      setTriggeringWorkflow(false);
+    }
+  };
 
   // Viewers (read-only role) can browse the inbox but never send.
   // For solo users this is always true — single-owner accounts pass
@@ -951,6 +1061,24 @@ export function MessageComposer({
                 <Zap className="mr-2 h-4 w-4" />
                 {t("quickReplies")}
               </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  void loadActiveWorkflows();
+                  setFlowModalOpen(true);
+                }}
+              >
+                <GitBranch className="mr-2 h-4 w-4 text-primary" />
+                Start Flow
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  void loadActiveWorkflows();
+                  setAutoModalOpen(true);
+                }}
+              >
+                <PlayCircle className="mr-2 h-4 w-4 text-emerald-500" />
+                Start Automation
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -1108,6 +1236,106 @@ export function MessageComposer({
         onOpenChange={setQuickReplyOpen}
         onPick={handlePickQuickReply}
       />
+
+      {/* Start Flow Dialog */}
+      <Dialog open={flowModalOpen} onOpenChange={setFlowModalOpen}>
+        <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GitBranch className="size-5 text-primary" />
+              Start WhatsApp Flow
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              Select an active flow to manually initiate for this contact. The customer will immediately receive the entry node.
+            </p>
+            {activeFlowsList.length === 0 ? (
+              <p className="text-xs text-amber-500 py-3 italic">
+                No active flows found. Please activate a flow in the Flows builder first.
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-foreground">Active Flow</label>
+                <select
+                  value={selectedFlowId}
+                  onChange={(e) => setSelectedFlowId(e.target.value)}
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+                >
+                  {activeFlowsList.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setFlowModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleStartFlow}
+              disabled={triggeringWorkflow || !selectedFlowId || activeFlowsList.length === 0}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5"
+            >
+              {triggeringWorkflow ? <Loader2 className="size-4 animate-spin" /> : <PlayCircle className="size-4" />}
+              Initiate Flow
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Start Automation Dialog */}
+      <Dialog open={autoModalOpen} onOpenChange={setAutoModalOpen}>
+        <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PlayCircle className="size-5 text-emerald-500" />
+              Start Automation
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              Select an active automation workflow to execute immediately for this contact.
+            </p>
+            {activeAutomationsList.length === 0 ? (
+              <p className="text-xs text-amber-500 py-3 italic">
+                No active automations found. Please activate an automation in the Automations panel first.
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-foreground">Active Automation</label>
+                <select
+                  value={selectedAutomationId}
+                  onChange={(e) => setSelectedAutomationId(e.target.value)}
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+                >
+                  {activeAutomationsList.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setAutoModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleStartAutomation}
+              disabled={triggeringWorkflow || !selectedAutomationId || activeAutomationsList.length === 0}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+            >
+              {triggeringWorkflow ? <Loader2 className="size-4 animate-spin" /> : <PlayCircle className="size-4" />}
+              Run Automation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

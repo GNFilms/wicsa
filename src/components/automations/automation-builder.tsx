@@ -694,15 +694,15 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
 
       const res = isEditing
         ? await fetch(`/api/automations/${initial.id}`, {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(payload),
-          })
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        })
         : await fetch(`/api/automations`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(payload),
-          })
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        })
 
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -1489,10 +1489,10 @@ function StepEditor({
                 cfg.subject === "time_of_day"
                   ? t("config.placeholderTime")
                   : cfg.subject === "contact_field"
-                  ? t("config.placeholderContact")
-                  : cfg.subject === "tag_presence"
-                  ? t("config.placeholderTag")
-                  : ""
+                    ? t("config.placeholderContact")
+                    : cfg.subject === "tag_presence"
+                      ? t("config.placeholderTag")
+                      : ""
               }
               value={(cfg.operand as string) ?? ""}
               onChange={(e) => set({ operand: e.target.value })}
@@ -1620,9 +1620,9 @@ export function fromServerSteps(nodes: ServerStepNode[]): BuilderStep[] {
     branches:
       n.step_type === "condition"
         ? {
-            yes: fromServerSteps(n.branches?.yes ?? []),
-            no: fromServerSteps(n.branches?.no ?? []),
-          }
+          yes: fromServerSteps(n.branches?.yes ?? []),
+          no: fromServerSteps(n.branches?.no ?? []),
+        }
         : undefined,
   }))
 }
@@ -1647,13 +1647,14 @@ function SendMediaFields({
   const handleUpload = async (file: File) => {
     setUploading(true)
     try {
-      const { publicUrl } = await uploadAccountMedia("flow-media", file)
-      const isVideo = file.type.startsWith("video/")
-      const isAudio = file.type.startsWith("audio/")
-      const inferredType = isVideo ? "video" : isAudio ? "audio" : file.type.startsWith("image/") ? "image" : "document"
+      const { publicUrl } = await uploadAccountMedia("chat-media", file)
+      const ext = file.name.split('.').pop()?.toLowerCase() || ''
+      const isAudio = file.type.startsWith("audio/") || ["mp3", "wav", "ogg", "m4a", "aac", "opus"].includes(ext)
+      const isVideo = !isAudio && (file.type.startsWith("video/") || ["mp4", "3gp", "mov", "avi", "mkv"].includes(ext))
+      const inferredType = isAudio ? "audio" : isVideo ? "video" : file.type.startsWith("image/") ? "image" : "document"
       onChange({
         media_url: publicUrl,
-        media_type: inferredType,
+        media_type: mediaType !== "image" ? mediaType : inferredType,
         filename: file.name,
       })
       toast.success("Media file uploaded successfully")

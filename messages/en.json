@@ -911,7 +911,9 @@
         "send_message": "Send Message",
         "send_buttons": "Send Buttons",
         "send_list": "Send List",
+        "send_media": "Send Media",
         "send_template": "Send Template",
+        "run_flow": "Run Flow",
         "add_tag": "Add Tag",
         "remove_tag": "Remove Tag",
         "assign_conversation": "Assign Conversation",
@@ -1244,6 +1246,18 @@
         "send_media": {
           "label": "Send media",
           "blurb": "Sends an image, video, or document"
+        },
+        "send_carousel": {
+          "label": "Send carousel",
+          "blurb": "Sends multiple scrollable interactive cards"
+        },
+        "delay": {
+          "label": "Wait / Delay",
+          "blurb": "Waits for a set duration before continuing"
+        },
+        "run_automation": {
+          "label": "Run automation",
+          "blurb": "Triggers an automation workflow"
         },
         "collect_input": {
           "label": "Collect input",

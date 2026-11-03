@@ -460,6 +460,8 @@ export interface PipelineStage {
   name: string;
   position: number;
   color: string;
+  default_assignee_id?: string | null;
+  default_assignee?: Profile | null;
   created_at: string;
 }
 

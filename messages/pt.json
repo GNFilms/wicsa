@@ -911,7 +911,9 @@
         "send_message": "Enviar mensagem",
         "send_buttons": "Enviar botões",
         "send_list": "Enviar lista",
+        "send_media": "Enviar mídia",
         "send_template": "Enviar modelo",
+        "run_flow": "Executar fluxo",
         "add_tag": "Adicionar tag",
         "remove_tag": "Remover tag",
         "assign_conversation": "Atribuir conversa",
@@ -1244,6 +1246,18 @@
         "send_media": {
           "label": "Enviar mídia",
           "blurb": "Envia uma imagem, vídeo ou documento"
+        },
+        "send_carousel": {
+          "label": "Enviar carrossel",
+          "blurb": "Envia cartões interativos deslizáveis"
+        },
+        "delay": {
+          "label": "Aguardar / Delay",
+          "blurb": "Aguarda um tempo antes de continuar"
+        },
+        "run_automation": {
+          "label": "Executar automação",
+          "blurb": "Dispara um fluxo de automação"
         },
         "collect_input": {
           "label": "Coletar resposta",

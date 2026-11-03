@@ -112,17 +112,48 @@ export async function uploadAccountMedia(
     throw new Error("Could not resolve your account.");
   }
 
+  const ext = file.name.split('.').pop()?.toLowerCase();
+  let contentType = file.type;
+  if (ext === 'mp3') {
+    contentType = 'audio/mpeg';
+  } else if (ext === 'wav') {
+    contentType = 'audio/wav';
+  } else if (ext === 'ogg') {
+    contentType = 'audio/ogg';
+  } else if (ext === 'm4a') {
+    contentType = 'audio/mp4';
+  } else if (ext === 'aac') {
+    contentType = 'audio/aac';
+  }
+
   const path = buildMediaPath(profile.account_id as string, file.name);
-  const { error: upErr } = await supabase.storage.from(bucket).upload(path, file, {
+  let targetBucket = bucket;
+  const isAudio = contentType?.startsWith('audio/') || ['mp3', 'wav', 'ogg', 'm4a', 'aac'].includes(ext || '');
+  if (targetBucket === 'flow-media' && isAudio) {
+    targetBucket = 'chat-media';
+  }
+
+  let { error: upErr } = await supabase.storage.from(targetBucket).upload(path, file, {
     cacheControl: "3600",
     upsert: false,
-    contentType: file.type,
+    contentType: contentType || undefined,
   });
+
+  if (upErr && (upErr.message.includes('mime type') || upErr.message.includes('not supported')) && targetBucket !== 'chat-media') {
+    targetBucket = 'chat-media';
+    const retry = await supabase.storage.from('chat-media').upload(path, file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: contentType || undefined,
+    });
+    upErr = retry.error;
+  }
+
   if (upErr) throw new Error(upErr.message);
 
   const {
     data: { publicUrl },
-  } = supabase.storage.from(bucket).getPublicUrl(path);
+  } = supabase.storage.from(targetBucket).getPublicUrl(path);
 
   return { publicUrl, path };
 }

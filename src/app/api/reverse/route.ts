@@ -239,7 +239,7 @@ export async function POST(req: NextRequest) {
     let count = 0;
 
     for (const item of filesToBackup) {
-      const srcPath = path.join(APP_ROOT, item);
+      const srcPath = path.join(/*turbopackIgnore: true*/ APP_ROOT, item);
       const destPath = path.join(backupFolder, item);
       if (fs.existsSync(srcPath)) {
         if (fs.statSync(srcPath).isDirectory()) {

@@ -163,26 +163,21 @@ export function ConversationList({
   const filtered = useMemo(() => {
     let result = conversations;
 
-    // Role-based visibility scoping (e.g. Sales team role with assigned tags / assigned only)
-    if (!isOwner && !isAdmin && rolePermissions && rolePermissions.view_all_conversations === false) {
-      const assignedOnly = rolePermissions.only_assigned_conversations;
-      const assignedTagIds = rolePermissions.assigned_tag_ids ?? [];
-
-      if (assignedOnly && assignedTagIds.length > 0) {
-        // Can see if assigned to user OR has any of the role's assigned tags
-        result = result.filter((c) => {
-          const isAssigned = c.assigned_agent_id === user?.id;
-          const contactTags = (c.contact?.tags ?? []) as Tag[];
-          const hasTag = contactTags.some((t) => assignedTagIds.includes(t.id));
-          return isAssigned || hasTag;
-        });
-      } else if (assignedOnly) {
-        result = result.filter((c) => c.assigned_agent_id === user?.id);
-      } else if (assignedTagIds.length > 0) {
-        result = result.filter((c) => {
-          const contactTags = (c.contact?.tags ?? []) as Tag[];
-          return contactTags.some((t) => assignedTagIds.includes(t.id));
-        });
+    // Strict assignment visibility: If non-owner and non-admin, default to only their assigned chats unless granted view_all_conversations
+    if (!isOwner && !isAdmin) {
+      if (rolePermissions?.view_all_conversations !== true) {
+        const assignedTagIds = rolePermissions?.assigned_tag_ids ?? [];
+        if (assignedTagIds.length > 0) {
+          result = result.filter((c) => {
+            const isAssigned = c.assigned_agent_id === user?.id;
+            const contactTags = (c.contact?.tags ?? []) as Tag[];
+            const hasTag = contactTags.some((t) => assignedTagIds.includes(t.id));
+            return isAssigned || hasTag;
+          });
+        } else {
+          // Strictly show only chats assigned to this team member
+          result = result.filter((c) => c.assigned_agent_id === user?.id);
+        }
       }
     }
 

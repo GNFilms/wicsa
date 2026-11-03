@@ -5567,3 +5567,62 @@ CREATE INDEX IF NOT EXISTS idx_profiles_stage ON profiles(stage_id);
 UPDATE storage.buckets
 SET file_size_limit = 104857600 -- 100 MB
 WHERE id IN ('chat-media', 'flow-media');
+
+-- ============================================================
+-- 046_pipeline_stage_assignee_and_custom_fields.sql
+--
+-- 1. Adds default_assignee_id to pipeline_stages
+-- 2. Adds default_assignee_id to deals auto-assignment
+-- 3. Adds field_type and field_options to custom_fields
+-- ============================================================
+
+ALTER TABLE pipeline_stages
+  ADD COLUMN IF NOT EXISTS default_assignee_id UUID REFERENCES profiles(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_stages_default_assignee ON pipeline_stages(default_assignee_id);
+
+ALTER TABLE custom_fields
+  ADD COLUMN IF NOT EXISTS field_type TEXT NOT NULL DEFAULT 'text',
+  ADD COLUMN IF NOT EXISTS field_options JSONB DEFAULT '[]'::jsonb;
+
+-- ============================================================
+-- 047_storage_media_types.sql
+--
+-- Remove MIME type restrictions on flow-media and chat-media storage buckets
+-- so any audio, video, image, or document formats (including audio/mpeg,
+-- video/mpeg, wav, ogg, etc.) can be uploaded up to 100MB without rejection.
+-- ============================================================
+
+UPDATE storage.buckets
+SET allowed_mime_types = NULL,
+    file_size_limit = 104857600
+WHERE id IN ('chat-media', 'flow-media');
+
+-- ============================================================
+-- 048_flow_nodes_expanded_types.sql
+--
+-- Expand flow_nodes_node_type_check to include 'send_carousel',
+-- 'delay', and 'run_automation'.
+-- ============================================================
+
+ALTER TABLE flow_nodes
+  DROP CONSTRAINT IF EXISTS flow_nodes_node_type_check;
+
+ALTER TABLE flow_nodes
+  ADD CONSTRAINT flow_nodes_node_type_check
+  CHECK (node_type IN (
+    'start',
+    'send_buttons',
+    'send_list',
+    'send_message',
+    'send_media',
+    'send_carousel',
+    'delay',
+    'run_automation',
+    'collect_input',
+    'condition',
+    'set_tag',
+    'handoff',
+    'http_fetch',
+    'end'
+  ));

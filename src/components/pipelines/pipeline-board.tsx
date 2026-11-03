@@ -17,7 +17,24 @@ import {
 import type { Deal, PipelineStage } from "@/types";
 import { DealCard } from "./deal-card";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { Plus, Settings, UserCheck, Copy, ArrowUpDown, Archive, Check } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { formatCurrency } from "@/lib/currency";
 import { useTranslations } from "next-intl";
@@ -203,6 +220,35 @@ function StageColumn({
 }) {
   const t = useTranslations("Pipelines.board");
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
+  const [assigneeModalOpen, setAssigneeModalOpen] = useState(false);
+  const [profiles, setProfiles] = useState<{ id: string; user_id: string; full_name: string }[]>([]);
+  const [currentAssigneeId, setCurrentAssigneeId] = useState<string | null>(stage.default_assignee_id ?? null);
+  const [savingAssignee, setSavingAssignee] = useState(false);
+
+  const loadProfiles = async () => {
+    const supabase = createClient();
+    const { data } = await supabase.from("profiles").select("id, user_id, full_name").order("full_name");
+    if (data) setProfiles(data);
+  };
+
+  const handleSaveAssignee = async (profileId: string | null) => {
+    setSavingAssignee(true);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("pipeline_stages")
+      .update({ default_assignee_id: profileId })
+      .eq("id", stage.id);
+
+    setSavingAssignee(false);
+    if (error) {
+      toast.error(`Failed to update assignee: ${error.message}`);
+    } else {
+      setCurrentAssigneeId(profileId);
+      stage.default_assignee_id = profileId;
+      toast.success("Default assignee updated for stage");
+      setAssigneeModalOpen(false);
+    }
+  };
 
   return (
     // On mobile each column is `w-[85vw]` (with a reasonable min/max)
@@ -218,16 +264,110 @@ function StageColumn({
         style={{ backgroundColor: stage.color }}
       />
       <div className="flex items-center justify-between pt-3">
-        <h3 className="truncate text-sm font-semibold text-foreground">
-          {stage.name}
-        </h3>
-        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-          {deals.length}
-        </span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <h3 className="truncate text-sm font-semibold text-foreground">
+            {stage.name}
+          </h3>
+          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+            {deals.length}
+          </span>
+        </div>
+
+        {/* Stage Settings Dropdown (Reference image 5) */}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            className="h-6 w-6 rounded-md hover:bg-muted inline-flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Settings className="h-3.5 w-3.5" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48 bg-popover border-border">
+            <div className="px-2 py-1.5 text-xs font-semibold text-foreground border-b border-border">
+              Stage Actions
+            </div>
+            <DropdownMenuItem
+              onClick={() => {
+                void loadProfiles();
+                setAssigneeModalOpen(true);
+              }}
+              className="text-xs gap-2 cursor-pointer"
+            >
+              <UserCheck className="h-3.5 w-3.5 text-primary" />
+              Default Assignees
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => onAddDeal(stage.id)}
+              className="text-xs gap-2 cursor-pointer"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add Deal Here
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className="bg-border" />
+            <DropdownMenuItem
+              onClick={() => toast.info(`Stage: ${stage.name}`)}
+              className="text-xs gap-2 cursor-pointer text-muted-foreground"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              Copy Stage
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => toast.info("Stage order is managed in Pipeline Settings")}
+              className="text-xs gap-2 cursor-pointer text-muted-foreground"
+            >
+              <ArrowUpDown className="h-3.5 w-3.5" />
+              Reorder Stages
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
+
       <p className="text-xs text-muted-foreground">
         {formatCurrency(totalValue, currency)}
       </p>
+
+      {/* Default Assignee modal */}
+      <Dialog open={assigneeModalOpen} onOpenChange={setAssigneeModalOpen}>
+        <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <UserCheck className="size-4 text-primary" />
+              Default Assignee for &quot;{stage.name}&quot;
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              When a deal or contact lands on this stage, automatically assign it to this team member.
+            </p>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Select Team Member</Label>
+              <select
+                value={currentAssigneeId ?? ""}
+                onChange={(e) => setCurrentAssigneeId(e.target.value || null)}
+                className="w-full h-9 rounded-md border border-input bg-background px-3 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="">-- No default assignee --</option>
+                {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.full_name || "Agent"}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setAssigneeModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={savingAssignee}
+              onClick={() => handleSaveAssignee(currentAssigneeId)}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            >
+              {savingAssignee ? "Saving..." : "Save Default Assignee"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div
         ref={setNodeRef}

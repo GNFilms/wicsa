@@ -911,7 +911,9 @@
         "send_message": "메시지 보내기",
         "send_buttons": "버튼 보내기",
         "send_list": "목록 보내기",
+        "send_media": "미디어 보내기",
         "send_template": "템플릿 보내기",
+        "run_flow": "플로우 실행",
         "add_tag": "태그 추가",
         "remove_tag": "태그 제거",
         "assign_conversation": "대화 담당자 지정",
@@ -1244,6 +1246,18 @@
         "send_media": {
           "label": "미디어 보내기",
           "blurb": "이미지, 동영상, 문서를 보냅니다"
+        },
+        "send_carousel": {
+          "label": "캐러셀 보내기",
+          "blurb": "여러 개의 스크롤 가능한 대화형 카드를 보냅니다"
+        },
+        "delay": {
+          "label": "대기 / 지연",
+          "blurb": "계속하기 전에 일정 시간 대기합니다"
+        },
+        "run_automation": {
+          "label": "자동화 실행",
+          "blurb": "자동화 워크플로를 트리거합니다"
         },
         "collect_input": {
           "label": "입력 수집",
