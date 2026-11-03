@@ -73,7 +73,7 @@ export default function PipelinesPage() {
   // Guard against double-seeding (React StrictMode double-effect in dev).
   const seedAttempted = useRef(false);
 
-  const loadPipelines = useCallback(async () => {
+  const loadPipelines = useCallback(async (): Promise<Pipeline[]> => {
     const { data, error } = await supabase
       .from("pipelines")
       .select("*")
@@ -82,12 +82,12 @@ export default function PipelinesPage() {
       console.error("Failed to load pipelines:", error.message);
       return [];
     }
-    const all = data ?? [];
+    const all = (data ?? []) as Pipeline[];
 
     // Filter assigned pipelines for non-admin team members if assigned to a specific pipeline
     const assignedPipelineId = (profile as { pipeline_id?: string | null })?.pipeline_id;
     if (!isOwner && !isAdmin && assignedPipelineId) {
-      const filtered = all.filter((p) => p.id === assignedPipelineId);
+      const filtered = all.filter((p: Pipeline) => p.id === assignedPipelineId);
       return filtered.length > 0 ? filtered : all;
     }
     return all;
@@ -165,7 +165,7 @@ export default function PipelinesPage() {
       setPipelines(list);
       if (list.length > 0) {
         setSelectedPipelineId((prev) =>
-          prev && list.some((p) => p.id === prev) ? prev : list[0].id,
+          prev && list.some((p: Pipeline) => p.id === prev) ? prev : list[0].id,
         );
       } else {
         setSelectedPipelineId("");
@@ -208,7 +208,7 @@ export default function PipelinesPage() {
     const list = await loadPipelines();
     setPipelines(list);
     if (list.length === 0) setSelectedPipelineId("");
-    else if (!list.some((p) => p.id === selectedPipelineId))
+    else if (!list.some((p: Pipeline) => p.id === selectedPipelineId))
       setSelectedPipelineId(list[0].id);
   }, [loadPipelines, selectedPipelineId]);
 

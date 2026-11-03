@@ -6,7 +6,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // because another request stole it") and intermittent fetch failures.
 let browserClient: SupabaseClient | undefined
 
-export function createClient() {
+export function createClient(): SupabaseClient {
   if (browserClient) return browserClient
 
   browserClient = createBrowserClient(

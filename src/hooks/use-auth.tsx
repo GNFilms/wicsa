@@ -190,6 +190,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const lastFetchedUserIdRef = useRef<string | null>(null);
 
+  useEffect(() => {
+    // Periodically drain any due wait timers while the app is active
+    const drainTimer = setInterval(() => {
+      fetch('/api/automations/cron').catch(() => {});
+    }, 20000);
+    return () => clearInterval(drainTimer);
+  }, []);
+
   const fetchProfile = useCallback(async (userId: string) => {
     const supabase = createClient();
     setProfileLoading(true);

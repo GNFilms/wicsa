@@ -70,6 +70,9 @@ export interface DispatchInput {
  */
 export async function runAutomationsForTrigger(input: DispatchInput): Promise<void> {
   try {
+    // Opportunistically drain any due pending wait timers
+    void drainDuePendingExecutions()
+
     const db = supabaseAdmin()
 
     // Tenant isolation. `contactId` can be caller-supplied (the manual
@@ -220,6 +223,56 @@ export async function resumePendingExecution(pending: {
   }
 }
 
+/**
+ * Drain due pending executions across all automations.
+ * Can be safely called from cron routes, webhooks, or client intervals.
+ */
+export async function drainDuePendingExecutions(): Promise<number> {
+  const admin = supabaseAdmin()
+  const nowIso = new Date().toISOString()
+  const { data: due, error } = await admin
+    .from('automation_pending_executions')
+    .select('*')
+    .eq('status', 'pending')
+    .lte('run_at', nowIso)
+    .order('run_at', { ascending: true })
+    .limit(50)
+
+  if (error || !due || due.length === 0) return 0
+
+  let processed = 0
+  for (const row of due) {
+    const { data: claim } = await admin
+      .from('automation_pending_executions')
+      .update({ status: 'running' })
+      .eq('id', row.id)
+      .eq('status', 'pending')
+      .select('id')
+      .maybeSingle()
+    if (!claim) continue
+
+    try {
+      await resumePendingExecution({
+        id: row.id as string,
+        automation_id: row.automation_id as string,
+        account_id: row.account_id as string,
+        user_id: row.user_id as string,
+        contact_id: (row.contact_id as string | null) ?? null,
+        log_id: (row.log_id as string | null) ?? null,
+        parent_step_id: (row.parent_step_id as string | null) ?? null,
+        branch: (row.branch as 'yes' | 'no' | null) ?? null,
+        next_step_position: row.next_step_position as number,
+        context: (row.context as AutomationContext) ?? {},
+      })
+      processed++
+    } catch (err) {
+      console.error('[automations] drain error for row', row.id, err)
+    }
+  }
+
+  return processed
+}
+
 // ------------------------------------------------------------
 // Internal execution
 // ------------------------------------------------------------
@@ -330,6 +383,19 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
     if (step.step_type === 'wait') {
       const cfg = step.step_config as WaitStepConfig
       const ms = waitMs(cfg)
+
+      // Short wait (<= 20 seconds): execute in-process to guarantee immediate delivery
+      if (ms <= 20_000) {
+        results.push({
+          step_id: step.id,
+          step_type: step.step_type,
+          status: 'success',
+          detail: `waited ${cfg.amount} ${cfg.unit}`,
+        })
+        await new Promise((resolve) => setTimeout(resolve, ms))
+        continue
+      }
+
       await db.from('automation_pending_executions').insert({
         automation_id: args.automation.id,
         // Tenancy: account_id required NOT NULL post-017.
@@ -352,6 +418,12 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
       })
       status = 'partial'
       await appendResults(args.logId, results, status, errorMessage)
+
+      // Schedule in-memory timer so if the node container stays warm, it drains automatically
+      setTimeout(() => {
+        void drainDuePendingExecutions()
+      }, ms + 500)
+
       return
     }
 
