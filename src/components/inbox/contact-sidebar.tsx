@@ -120,8 +120,8 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
 
     const supabase = createClient();
 
-    // Fetch deals, notes, tags, workspace tags, and custom fields in parallel
-    const [dealsRes, notesRes, tagsRes, allTagsRes, fieldsRes, customValsRes] = await Promise.all([
+    // Fetch deals, notes, tags, workspace tags, custom fields, pipelines and stages in parallel
+    const [dealsRes, notesRes, tagsRes, allTagsRes, fieldsRes, customValsRes, pipeRes, stagesRes] = await Promise.all([
       supabase
         .from("deals")
         .select("*, stage:pipeline_stages(*)")

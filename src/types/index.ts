@@ -73,6 +73,11 @@ export interface Profile {
    * `@/lib/auth/roles` rather than comparing this string directly.
    */
   account_role?: AccountRole;
+  pipeline_id?: string | null;
+  pipeline_name?: string | null;
+  stage_id?: string | null;
+  stage_name?: string | null;
+  label?: string | null;
   custom_role_id?: string | null;
   custom_role_name?: string | null;
   custom_role?: CustomRole | null;

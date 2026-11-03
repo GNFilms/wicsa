@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const res = await dispatchAutomationDirectly(supabaseAdmin, {
+    const res = await dispatchAutomationDirectly(supabaseAdmin(), {
       automationId: body.automationId,
       accountId,
       contactId: body.contactId,

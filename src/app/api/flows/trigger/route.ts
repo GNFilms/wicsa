@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'flowId and contactId are required' }, { status: 400 })
   }
 
-  const res = await startFlowDirectly(supabaseAdmin, {
+  const res = await startFlowDirectly(supabaseAdmin(), {
     flowId: body.flowId,
     accountId,
     contactId: body.contactId,

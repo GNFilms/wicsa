@@ -52,6 +52,7 @@ import {
   deleteAccountMedia,
   MEDIA_MAX_BYTES_BY_KIND,
 } from "@/lib/storage/upload-media";
+import { createClient } from "@/lib/supabase/client";
 import { ReplyQuote } from "./reply-quote";
 import { useTranslations } from "next-intl";
 import {
