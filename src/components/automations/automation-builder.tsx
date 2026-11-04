@@ -70,6 +70,7 @@ import {
   insertAt,
   mapAtPath,
   moveAt,
+  reorderAt,
   removeAt,
   type ParentScope,
   type StepPath,
@@ -680,6 +681,10 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
     setState((s) => ({ ...s, steps: moveAt(s.steps, path, direction) }))
   }
 
+  function reorderStepAt(basePath: StepPath, scope: ParentScope, fromIndex: number, toIndex: number) {
+    setState((s) => ({ ...s, steps: reorderAt(s.steps, basePath, scope, fromIndex, toIndex) }))
+  }
+
   async function save() {
     setSaving(true)
     try {
@@ -750,7 +755,9 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
           className="min-w-0 flex-1 rounded-md bg-transparent px-2 py-1 text-sm font-semibold text-foreground placeholder:text-muted-foreground focus:bg-muted focus:outline-none sm:text-base"
         />
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="hidden sm:inline">{t("active")}</span>
+          <span className={cn("hidden sm:inline font-medium transition-colors", state.is_active ? "text-primary" : "text-muted-foreground")}>
+            {state.is_active ? t("active") : (t("inactive") || "Inactive")}
+          </span>
           <Switch
             checked={state.is_active}
             onCheckedChange={(v) => patchTop("is_active", !!v)}
@@ -789,6 +796,7 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
               addStepAt={addStepAt}
               deleteStepAt={deleteStepAt}
               moveStepAt={moveStepAt}
+              reorderStepAt={reorderStepAt}
             />
           </ResourcesProvider>
         </div>
@@ -1062,10 +1070,13 @@ interface StepListProps {
   addStepAt: (parent: ParentScope, index: number, type: AutomationStepType) => void
   deleteStepAt: (path: StepPath) => void
   moveStepAt: (path: StepPath, direction: -1 | 1) => void
+  reorderStepAt: (basePath: StepPath, scope: ParentScope, fromIndex: number, toIndex: number) => void
 }
 
 function StepList(props: StepListProps) {
   const { steps, basePath, scope, ...rest } = props
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null)
 
   return (
     <div className="flex w-full flex-col items-center">
@@ -1078,6 +1089,10 @@ function StepList(props: StepListProps) {
           total={steps.length}
           basePath={basePath}
           scope={scope}
+          draggedIndex={draggedIndex}
+          setDraggedIndex={setDraggedIndex}
+          dropTargetIndex={dropTargetIndex}
+          setDropTargetIndex={setDropTargetIndex}
           {...rest}
         />
       ))}
@@ -1091,6 +1106,10 @@ function StepRenderer({
   total,
   scope,
   basePath,
+  draggedIndex,
+  setDraggedIndex,
+  dropTargetIndex,
+  setDropTargetIndex,
   ...props
 }: {
   step: BuilderStep
@@ -1098,6 +1117,10 @@ function StepRenderer({
   total: number
   scope: ParentScope
   basePath: StepPath
+  draggedIndex: number | null
+  setDraggedIndex: (idx: number | null) => void
+  dropTargetIndex: number | null
+  setDropTargetIndex: (idx: number | null) => void
 } & Omit<StepListProps, "steps" | "basePath" | "scope">) {
   const t = useTranslations("Automations.builder")
   const path = childPath(basePath, scope, index)
@@ -1106,18 +1129,10 @@ function StepRenderer({
   const expanded = props.expandedId === step.cid
   const isCondition = step.step_type === "condition"
   const nested = basePath.length > 0
-  // Card widths on mobile fill the full canvas column (max-w-2xl px-4
-  // still keeps them reasonable). On sm+ fixed widths come back so the
-  // flow visual stays recognisable — but only at the top level: a
-  // branch column is a fraction of its condition's width, so a 320px
-  // card inside one overflowed its own column and dragged the editor's
-  // controls out of reach (issue #474). Nested cards fill the column
-  // they were given instead.
-  //
-  // A condition is wider than a plain step because it has to hold two
-  // branch columns side by side; 600px (the canvas is max-w-2xl, i.e.
-  // 640px of content) leaves each branch ~294px — near enough to the
-  // 320px a step gets at the top level for the same editors to fit.
+
+  const isDragging = draggedIndex === index
+  const isOverTarget = dropTargetIndex === index && draggedIndex !== index
+
   const width = nested
     ? "w-full"
     : isCondition
@@ -1126,11 +1141,51 @@ function StepRenderer({
 
   return (
     <>
-      <div className={cn("z-10 flex min-w-0 flex-col", width)}>
+      <div
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/plain", index.toString())
+          e.dataTransfer.effectAllowed = "move"
+          setDraggedIndex(index)
+        }}
+        onDragEnd={() => {
+          setDraggedIndex(null)
+          setDropTargetIndex(null)
+        }}
+        onDragOver={(e) => {
+          e.preventDefault()
+          e.dataTransfer.dropEffect = "move"
+          if (dropTargetIndex !== index) {
+            setDropTargetIndex(index)
+          }
+        }}
+        onDragLeave={() => {
+          if (dropTargetIndex === index) {
+            setDropTargetIndex(null)
+          }
+        }}
+        onDrop={(e) => {
+          e.preventDefault()
+          const fromStr = e.dataTransfer.getData("text/plain")
+          const fromIdx = parseInt(fromStr, 10)
+          if (!isNaN(fromIdx) && fromIdx !== index) {
+            props.reorderStepAt(basePath, scope, fromIdx, index)
+          }
+          setDraggedIndex(null)
+          setDropTargetIndex(null)
+        }}
+        className={cn(
+          "z-10 flex min-w-0 flex-col transition-all duration-150 cursor-grab active:cursor-grabbing",
+          width,
+          isDragging && "opacity-40 scale-95",
+          isOverTarget && "ring-2 ring-primary ring-offset-2 rounded-lg scale-[1.02]"
+        )}
+      >
         <div
           className={cn(
-            "rounded-lg border border-border border-l-4 bg-card shadow-lg",
+            "rounded-lg border border-border border-l-4 bg-card shadow-lg transition-colors",
             meta.border,
+            isOverTarget && "border-primary bg-primary/5"
           )}
         >
           <button
@@ -1138,7 +1193,12 @@ function StepRenderer({
             onClick={() => props.setExpandedId(expanded ? null : step.cid)}
             className="flex w-full items-center gap-3 px-4 py-3 text-left"
           >
-            <GripVertical className="h-4 w-4 flex-shrink-0 text-muted-foreground" aria-hidden />
+            <div
+              className="flex items-center justify-center cursor-grab active:cursor-grabbing p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              title="Drag to reorder"
+            >
+              <GripVertical className="h-4 w-4 flex-shrink-0" aria-hidden />
+            </div>
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
               <Icon className="h-4 w-4" />
             </div>
@@ -1154,7 +1214,13 @@ function StepRenderer({
             />
           </button>
           {expanded && (
-            <div className="border-t border-border px-4 py-3">
+            <div
+              className="border-t border-border px-4 py-3 cursor-default"
+              onDragStart={(e) => {
+                // Prevent inner inputs/text from triggering step dragging while typing or editing
+                e.stopPropagation()
+              }}
+            >
               <StepEditor
                 step={step}
                 onChange={(next) => props.updateStep(path, () => next)}
@@ -1197,6 +1263,7 @@ function StepRenderer({
           <ConditionBranches step={step} path={path} {...props} />
         )}
       </div>
+
 
       {/* A condition branches into Yes/No (rendered above by
           ConditionBranches), so it has no linear "continue" path — adding

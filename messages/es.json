@@ -969,6 +969,7 @@
       "scheduleHint": "Expresión cron (p. ej. 0 9 * * 1-5)",
       "schedulePlaceholder": "Expresión cron o HH:mm",
       "active": "Activa",
+      "inactive": "Inactiva",
       "activeAria": "Activa",
       "save": "Guardar",
       "saveDraft": "Guardar borrador",

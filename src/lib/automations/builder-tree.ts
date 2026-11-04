@@ -147,6 +147,35 @@ export function moveAt<T extends TreeStep<T>>(
 }
 
 /**
+ * Reorder an item within a bucket from fromIndex to toIndex.
+ */
+export function reorderAt<T extends TreeStep<T>>(
+  steps: T[],
+  basePath: StepPath,
+  scope: ParentScope,
+  fromIndex: number,
+  toIndex: number,
+): T[] {
+  if (fromIndex === toIndex) return steps
+  const targetPath = childPath(basePath, scope, fromIndex)
+  return atPath(steps, targetPath, (bucket, _index) => {
+    if (
+      fromIndex < 0 ||
+      fromIndex >= bucket.length ||
+      toIndex < 0 ||
+      toIndex >= bucket.length
+    ) {
+      return bucket
+    }
+    const copy = [...bucket]
+    const [moved] = copy.splice(fromIndex, 1)
+    copy.splice(toIndex, 0, moved)
+    return copy
+  })
+}
+
+
+/**
  * Walk to the bucket the last marker of `path` addresses and hand it,
  * plus the target index, to `edit`. One traversal shared by every
  * mutation above so they cannot drift apart on how a path resolves.

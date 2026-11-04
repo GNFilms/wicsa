@@ -969,6 +969,7 @@
       "scheduleHint": "Cron expression (e.g. 0 9 * * 1-5)",
       "schedulePlaceholder": "Cron expression or HH:mm",
       "active": "Active",
+      "inactive": "Inactive",
       "activeAria": "Active",
       "save": "Save",
       "saveDraft": "Save Draft",
