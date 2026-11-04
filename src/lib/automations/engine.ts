@@ -471,9 +471,6 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
   }
 
   if (args.parentStepId === null) {
-    if (status !== 'partial' && status !== 'failed') {
-      status = 'success'
-    }
     await appendResults(args.logId, results, status, errorMessage)
   } else {
     // Nested branch — just append results; parent scope decides final status.
