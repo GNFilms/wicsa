@@ -65,7 +65,7 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
   const tSidebar = useTranslations("Inbox.sidebar");
   const tThread = useTranslations("Inbox.messageThread");
 
-  const { accountId, user } = useAuth();
+  const { accountId, user, profile } = useAuth();
   const [copied, setCopied] = useState(false);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [notes, setNotes] = useState<ContactNote[]>([]);
@@ -412,7 +412,9 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
       .eq("id", selectedStageId)
       .maybeSingle();
 
-    const assignedTo = stageData?.default_assignee_id || user?.id;
+    // Note: deals.assigned_to references profiles(id), whereas user.id is auth.users(id).
+    // Use stage's default assignee profile id, or the current user's profile.id (fallback to null).
+    const assignedTo = stageData?.default_assignee_id || profile?.id || null;
 
     const { data, error } = await supabase
       .from("deals")
