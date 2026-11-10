@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Pipeline, PipelineStage, Deal } from "@/types";
 import { PipelineBoard } from "@/components/pipelines/pipeline-board";
@@ -367,7 +367,7 @@ export default function PipelinesPage() {
   }, [stages, isOwner, isAdmin, profile?.id, selectedStageAssignee]);
 
   const visibleDeals = useMemo(() => {
-    const stageIdSet = new Set(visibleStages.map((s) => s.id));
+    const stageIdSet = new Set(visibleStages.map((s: PipelineStage) => s.id));
     if (!isOwner && !isAdmin) {
       // Team members strictly see only deals in their assigned stages or assigned to them
       return deals.filter(

@@ -946,7 +946,7 @@ export function MessageThread({
               pipeline_id: targetStage.pipeline_id,
               stage_id: targetStage.id,
               assigned_to: assigneeProfile.id,
-              account_id: conversation.account_id,
+              account_id: (conversation as any).account_id || (assigneeProfile as any).account_id || null,
               user_id: session?.user?.id || null,
               status: "open",
               value: 0,

@@ -55,7 +55,7 @@ async function listFolderRecursive(
         size: Number(item.metadata?.size || 0),
         mimeType: String(item.metadata?.mimetype || 'application/octet-stream'),
         createdAt: item.created_at || item.updated_at || new Date().toISOString(),
-        updatedAt: item.updated_at,
+        updatedAt: item.updated_at || undefined,
         publicUrl: pubData.publicUrl,
       });
     }

@@ -416,18 +416,16 @@ export function StorageManager() {
                       <span className="hidden md:inline">Copy Link</span>
                     </Button>
 
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      asChild
-                      className="h-8 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                    <a
+                      href={file.publicUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center rounded-md font-medium transition-colors hover:bg-muted h-8 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
                       title="Open in new tab"
                     >
-                      <a href={file.publicUrl} target="_blank" rel="noopener noreferrer">
-                        <ExternalLink className="size-3.5" />
-                        <span className="hidden md:inline">Open</span>
-                      </a>
-                    </Button>
+                      <ExternalLink className="size-3.5" />
+                      <span className="hidden md:inline">Open</span>
+                    </a>
 
                     <Button
                       variant="ghost"
@@ -534,3 +532,4 @@ export function StorageManager() {
     </div>
   );
 }
+
