@@ -207,6 +207,27 @@ export function DealForm({
 
     setSaving(false);
     toast.success(deal ? t("toastUpdated") : t("toastCreated"));
+
+    // Auto-assign conversation for this contact if stage or deal has an assignee
+    const stageObj = stages.find((s) => s.id === stageId);
+    const targetProfileId = assignedTo || stageObj?.default_assignee_id;
+    if (targetProfileId && contactId) {
+      (async () => {
+        const { data: assigneeProfile } = await supabase
+          .from("profiles")
+          .select("user_id")
+          .eq("id", targetProfileId)
+          .maybeSingle();
+
+        if (assigneeProfile?.user_id) {
+          await supabase
+            .from("conversations")
+            .update({ assigned_agent_id: assigneeProfile.user_id })
+            .eq("contact_id", contactId);
+        }
+      })().catch((err) => console.error("Deal form conversation auto-assign error:", err));
+    }
+
     onOpenChange(false);
     onSaved();
   }

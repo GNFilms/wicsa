@@ -218,6 +218,11 @@ export function SettingsOverview({
       subtitle: t('appearance', { mode: cap(mode), theme: themeName }),
     },
     {
+      section: 'storage',
+      loading: false,
+      subtitle: 'Manage media files & free up egress bandwidth',
+    },
+    {
       section: 'update',
       loading: false,
       subtitle: 'Upload update.zip or install new features',

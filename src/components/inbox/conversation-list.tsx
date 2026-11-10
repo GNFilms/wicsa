@@ -9,7 +9,7 @@ import {
 } from "@/lib/inbox/conversations";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus, Tag } from "@/types";
-import { Search, ChevronDown, X, ShieldCheck } from "lucide-react";
+import { Search, ChevronDown, X, ShieldCheck, UserCheck } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -55,7 +56,7 @@ export function ConversationList({
   resyncToken = 0,
 }: ConversationListProps) {
   const t = useTranslations("Inbox.conversationList");
-  const { user, customRoleName, rolePermissions, isOwner, isAdmin } = useAuth();
+  const { user, profile, customRoleName, rolePermissions, isOwner, isAdmin } = useAuth();
   
   const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = useMemo(() => [
     { label: t("filterAll"), value: "all" },
@@ -74,6 +75,8 @@ export function ConversationList({
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+  const [teamMembers, setTeamMembers] = useState<{ id: string; user_id: string; full_name: string }[]>([]);
+  const [selectedAssignee, setSelectedAssignee] = useState<string>("all");
 
   // Keep the latest callback in a ref so the fetch effect below can
   // have a stable, empty-dep identity. Previously the fetch useCallback
@@ -142,6 +145,22 @@ export function ConversationList({
     };
   }, []);
 
+  // Team members for admin assignee filtering
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("id, user_id, full_name")
+        .order("full_name");
+      if (!cancelled && data) setTeamMembers(data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Company options are derived from the loaded conversations — there's no
   // separate companies table, and only companies with a live conversation
   // are worth offering as an inbox filter.
@@ -163,21 +182,30 @@ export function ConversationList({
   const filtered = useMemo(() => {
     let result = conversations;
 
-    // Strict assignment visibility: If non-owner and non-admin, default to only their assigned chats unless granted view_all_conversations
+    // Strict assignment visibility:
+    // Non-owner and non-admin team members MUST STRICTLY see only chats assigned to them (no open or unassigned chats).
     if (!isOwner && !isAdmin) {
-      if (rolePermissions?.view_all_conversations !== true) {
-        const assignedTagIds = rolePermissions?.assigned_tag_ids ?? [];
-        if (assignedTagIds.length > 0) {
-          result = result.filter((c) => {
-            const isAssigned = c.assigned_agent_id === user?.id;
-            const contactTags = (c.contact?.tags ?? []) as Tag[];
-            const hasTag = contactTags.some((t) => assignedTagIds.includes(t.id));
-            return isAssigned || hasTag;
-          });
-        } else {
-          // Strictly show only chats assigned to this team member
-          result = result.filter((c) => c.assigned_agent_id === user?.id);
-        }
+      result = result.filter(
+        (c) =>
+          c.assigned_agent_id === user?.id ||
+          (profile?.id && c.assigned_agent_id === profile.id)
+      );
+    } else {
+      // For Admin/Owner: Apply the Assignee filter dropdown
+      if (selectedAssignee === "unassigned") {
+        result = result.filter((c) => !c.assigned_agent_id);
+      } else if (selectedAssignee !== "all") {
+        result = result.filter((c) => {
+          const member = teamMembers.find(
+            (m) => m.user_id === selectedAssignee || m.id === selectedAssignee
+          );
+          return (
+            c.assigned_agent_id === selectedAssignee ||
+            (member &&
+              (c.assigned_agent_id === member.user_id ||
+                c.assigned_agent_id === member.id))
+          );
+        });
       }
     }
 
@@ -208,7 +236,19 @@ export function ConversationList({
     }
 
     return result;
-  }, [conversations, filter, search, selectedTagIds, selectedCompany, isOwner, isAdmin, rolePermissions, user?.id]);
+  }, [
+    conversations,
+    filter,
+    search,
+    selectedTagIds,
+    selectedCompany,
+    selectedAssignee,
+    teamMembers,
+    isOwner,
+    isAdmin,
+    user?.id,
+    profile?.id,
+  ]);
 
   const toggleTag = useCallback((id: string) => {
     setSelectedTagIds((prev) =>
@@ -219,9 +259,13 @@ export function ConversationList({
   const clearContactFilters = useCallback(() => {
     setSelectedTagIds([]);
     setSelectedCompany(null);
+    setSelectedAssignee("all");
   }, []);
 
-  const hasContactFilters = selectedTagIds.length > 0 || selectedCompany !== null;
+  const hasContactFilters =
+    selectedTagIds.length > 0 ||
+    selectedCompany !== null ||
+    ((isOwner || isAdmin) && selectedAssignee !== "all");
 
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -376,6 +420,77 @@ export function ConversationList({
               </DropdownMenuContent>
             </DropdownMenu>
           )}
+
+          {/* Admin Assignee Filter */}
+          {(isOwner || isAdmin) ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className={cn(
+                  "inline-flex max-w-40 items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
+                  selectedAssignee !== "all"
+                    ? "text-primary font-medium"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <UserCheck className="h-3 w-3 shrink-0" />
+                <span className="truncate">
+                  {selectedAssignee === "all"
+                    ? t("assignee")
+                    : selectedAssignee === "unassigned"
+                    ? t("unassigned")
+                    : teamMembers.find((m) => m.user_id === selectedAssignee || m.id === selectedAssignee)?.full_name ?? t("assignee")}
+                </span>
+                <ChevronDown className="h-3 w-3 shrink-0" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="max-h-64 w-56 border-border bg-popover"
+              >
+                <DropdownMenuItem
+                  onClick={() => setSelectedAssignee("all")}
+                  className={cn(
+                    "text-sm",
+                    selectedAssignee === "all"
+                      ? "text-primary"
+                      : "text-popover-foreground"
+                  )}
+                >
+                  {t("allAssignees")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setSelectedAssignee("unassigned")}
+                  className={cn(
+                    "text-sm",
+                    selectedAssignee === "unassigned"
+                      ? "text-primary"
+                      : "text-popover-foreground"
+                  )}
+                >
+                  {t("unassigned")}
+                </DropdownMenuItem>
+                {teamMembers.length > 0 && <DropdownMenuSeparator className="bg-border" />}
+                {teamMembers.map((m) => (
+                  <DropdownMenuItem
+                    key={m.id}
+                    onClick={() => setSelectedAssignee(m.user_id)}
+                    className={cn(
+                      "text-sm",
+                      selectedAssignee === m.user_id
+                        ? "text-primary"
+                        : "text-popover-foreground"
+                    )}
+                  >
+                    <span className="truncate">{m.full_name || "Agent"}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <div className="inline-flex items-center h-7 gap-1 px-2 text-xs rounded-md bg-primary/10 text-primary border border-primary/20">
+              <UserCheck className="h-3 w-3 shrink-0" />
+              <span>{t("assignedToYou")}</span>
+            </div>
+          )}
         </div>
 
         {hasContactFilters && (
@@ -403,6 +518,20 @@ export function ConversationList({
                 className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
               >
                 <span className="max-w-24 truncate">{selectedCompany}</span>
+                <X className="h-3 w-3" />
+              </button>
+            )}
+            {(isOwner || isAdmin) && selectedAssignee !== "all" && (
+              <button
+                onClick={() => setSelectedAssignee("all")}
+                className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
+              >
+                <UserCheck className="h-3 w-3 text-primary" />
+                <span className="max-w-28 truncate">
+                  {selectedAssignee === "unassigned"
+                    ? t("unassigned")
+                    : teamMembers.find((m) => m.user_id === selectedAssignee || m.id === selectedAssignee)?.full_name ?? t("assignee")}
+                </span>
                 <X className="h-3 w-3" />
               </button>
             )}

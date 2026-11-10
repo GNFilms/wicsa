@@ -900,8 +900,62 @@ export function MessageThread({
       }
 
       onAssignChange(conversation.id, agentId);
+
+      // Bi-directional pipeline sync:
+      // When assigning a user to this chat, check if that user is assigned to any pipeline stage.
+      // If so, automatically add or move this contact's deal to that user's assigned pipeline stage!
+      if (agentId && conversation.contact_id) {
+        (async () => {
+          const assigneeProfile = profiles.find(
+            (p) => p.user_id === agentId || p.id === agentId,
+          );
+          if (!assigneeProfile) return;
+
+          const { data: assignedStages } = await supabase
+            .from("pipeline_stages")
+            .select("id, pipeline_id, position, name")
+            .eq("default_assignee_id", assigneeProfile.id)
+            .order("position", { ascending: true })
+            .limit(1);
+
+          if (!assignedStages || assignedStages.length === 0) return;
+          const targetStage = assignedStages[0];
+
+          const { data: existingDeals } = await supabase
+            .from("deals")
+            .select("id, stage_id")
+            .eq("contact_id", conversation.contact_id)
+            .eq("pipeline_id", targetStage.pipeline_id)
+            .limit(1);
+
+          if (existingDeals && existingDeals.length > 0) {
+            await supabase
+              .from("deals")
+              .update({
+                stage_id: targetStage.id,
+                assigned_to: assigneeProfile.id,
+              })
+              .eq("id", existingDeals[0].id);
+          } else {
+            const {
+              data: { session },
+            } = await (supabase.auth as any).getSession();
+            await supabase.from("deals").insert({
+              title: `${contact?.name || "Lead"} - Deal`,
+              contact_id: conversation.contact_id,
+              pipeline_id: targetStage.pipeline_id,
+              stage_id: targetStage.id,
+              assigned_to: assigneeProfile.id,
+              account_id: conversation.account_id,
+              user_id: session?.user?.id || null,
+              status: "open",
+              value: 0,
+            });
+          }
+        })().catch((err) => console.error("Auto pipeline deal sync failed:", err));
+      }
     },
-    [conversation, onAssignChange, t],
+    [conversation, onAssignChange, t, profiles, contact],
   );
 
   // Empty state — same WhatsApp-style doodle background as the active

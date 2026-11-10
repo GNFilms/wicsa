@@ -21,6 +21,7 @@ import { RoleManager } from '@/components/settings/role-manager';
 import { BrandingPanel } from '@/components/settings/branding-panel';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import { UpdatePanel } from '@/components/settings/update-panel';
+import { StorageManager } from '@/components/settings/storage-manager';
 import {
   resolveSection,
   type SettingsSection,
@@ -85,6 +86,7 @@ function SettingsPageInner() {
     deals: <DealsSettings />,
     members: <MembersTab onGoToRoles={() => go('roles')} />,
     roles: <RoleManager onGoToMembers={() => go('members')} />,
+    storage: <StorageManager />,
     api: <ApiKeysSettings />,
     update: <UpdatePanel />,
   };

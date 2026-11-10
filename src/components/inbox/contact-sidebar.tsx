@@ -445,6 +445,24 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
       setDealValue("0");
       setPipelinePopoverOpen(false);
       toast.success("Contact added to pipeline!");
+
+      // Auto-assign chat to the stage's default assignee if configured
+      if (stageData?.default_assignee_id) {
+        (async () => {
+          const { data: assigneeProfile } = await supabase
+            .from("profiles")
+            .select("user_id")
+            .eq("id", stageData.default_assignee_id)
+            .maybeSingle();
+
+          if (assigneeProfile?.user_id) {
+            await supabase
+              .from("conversations")
+              .update({ assigned_agent_id: assigneeProfile.user_id })
+              .eq("contact_id", contact.id);
+          }
+        })().catch((e) => console.error("Auto-assign chat failed:", e));
+      }
     }
   };
 

@@ -231,6 +231,10 @@ function StageColumn({
     if (data) setProfiles(data);
   };
 
+  useEffect(() => {
+    void loadProfiles();
+  }, []);
+
   const handleSaveAssignee = async (profileId: string | null) => {
     setSavingAssignee(true);
     const supabase = createClient();
@@ -320,9 +324,23 @@ function StageColumn({
         </DropdownMenu>
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        {formatCurrency(totalValue, currency)}
-      </p>
+      <div className="flex items-center justify-between text-xs text-muted-foreground mt-0.5">
+        <span>{formatCurrency(totalValue, currency)}</span>
+        <button
+          type="button"
+          onClick={() => {
+            void loadProfiles();
+            setAssigneeModalOpen(true);
+          }}
+          className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+          title="Click to change default assignee"
+        >
+          <UserCheck className="size-3 text-primary" />
+          <span className="truncate max-w-[110px]">
+            {profiles.find((p) => p.id === (currentAssigneeId ?? stage.default_assignee_id))?.full_name || (stage.default_assignee_id ? "Assigned" : "Assignee")}
+          </span>
+        </button>
+      </div>
 
       {/* Default Assignee modal */}
       <Dialog open={assigneeModalOpen} onOpenChange={setAssigneeModalOpen}>

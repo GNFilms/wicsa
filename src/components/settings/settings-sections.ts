@@ -13,6 +13,7 @@ import {
   UsersRound,
   Zap,
   RefreshCw,
+  HardDrive,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -37,6 +38,7 @@ export const SETTINGS_SECTIONS = [
   'deals',
   'members',
   'roles',
+  'storage',
   'api',
   'update',
 ] as const;
@@ -66,6 +68,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   deals: { id: 'deals', label: 'Deals & currency', icon: Coins, group: 'workspace' },
   members: { id: 'members', label: 'Team members', icon: UsersRound, group: 'workspace' },
   roles: { id: 'roles', label: 'Role Manager', icon: ShieldCheck, group: 'workspace' },
+  storage: { id: 'storage', label: 'Storage & Media', icon: HardDrive, group: 'workspace' },
   api: { id: 'api', label: 'API keys', icon: KeyRound, group: 'workspace' },
   update: { id: 'update', label: 'Platform Update', icon: RefreshCw, group: 'workspace' },
 };

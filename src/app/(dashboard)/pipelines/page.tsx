@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { GitBranch, Plus, ChevronDown, Settings } from "lucide-react";
+import { GitBranch, Plus, ChevronDown, Settings, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useCan } from "@/hooks/use-can";
 import { useAuth } from "@/hooks/use-auth";
@@ -56,6 +56,8 @@ export default function PipelinesPage() {
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>("");
   const [stages, setStages] = useState<PipelineStage[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [teamMembers, setTeamMembers] = useState<{ id: string; user_id: string; full_name: string }[]>([]);
+  const [selectedStageAssignee, setSelectedStageAssignee] = useState<string>("all");
   const [loading, setLoading] = useState(true);
 
   // Dialog / sheet state
@@ -204,6 +206,23 @@ export default function PipelinesPage() {
     };
   }, [selectedPipelineId, loadStages, loadDeals]);
 
+  // Load team members for stage assignee filter (admin/owner)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("id, user_id, full_name")
+        .order("full_name");
+      if (!cancelled && data) {
+        setTeamMembers(data as { id: string; user_id: string; full_name: string }[]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
+
   const refreshPipelines = useCallback(async () => {
     const list = await loadPipelines();
     setPipelines(list);
@@ -228,16 +247,44 @@ export default function PipelinesPage() {
       setDeals((prev) =>
         prev.map((d) => (d.id === dealId ? { ...d, stage_id: newStageId } : d)),
       );
+
+      const targetStage = stages.find((s) => s.id === newStageId);
+      const updatePayload: Record<string, unknown> = { stage_id: newStageId };
+      if (targetStage?.default_assignee_id) {
+        updatePayload.assigned_to = targetStage.default_assignee_id;
+      }
+
       const { error } = await supabase
         .from("deals")
-        .update({ stage_id: newStageId })
+        .update(updatePayload)
         .eq("id", dealId);
+
       if (error) {
         toast.error(t("toastFailedMoveDeal"));
         refreshDeals();
+        return;
+      }
+
+      // Auto-assign conversation when deal lands on a stage with a default assignee
+      if (targetStage?.default_assignee_id) {
+        const movedDeal = deals.find((d) => d.id === dealId);
+        if (movedDeal?.contact_id) {
+          const { data: assigneeProfile } = await supabase
+            .from("profiles")
+            .select("user_id")
+            .eq("id", targetStage.default_assignee_id)
+            .maybeSingle();
+
+          if (assigneeProfile?.user_id) {
+            await supabase
+              .from("conversations")
+              .update({ assigned_agent_id: assigneeProfile.user_id })
+              .eq("contact_id", movedDeal.contact_id);
+          }
+        }
       }
     },
-    [supabase, refreshDeals, t],
+    [supabase, refreshDeals, t, stages, deals],
   );
 
   const handleAddDeal = useCallback(
@@ -304,6 +351,34 @@ export default function PipelinesPage() {
   }
 
   const selectedPipeline = pipelines.find((p) => p.id === selectedPipelineId);
+
+  const visibleStages = useMemo(() => {
+    if (!isOwner && !isAdmin) {
+      // Team members strictly see ONLY stages assigned to their profile
+      return stages.filter((s) => s.default_assignee_id === profile?.id);
+    }
+    if (selectedStageAssignee === "unassigned") {
+      return stages.filter((s) => !s.default_assignee_id);
+    }
+    if (selectedStageAssignee !== "all") {
+      return stages.filter((s) => s.default_assignee_id === selectedStageAssignee);
+    }
+    return stages;
+  }, [stages, isOwner, isAdmin, profile?.id, selectedStageAssignee]);
+
+  const visibleDeals = useMemo(() => {
+    const stageIdSet = new Set(visibleStages.map((s) => s.id));
+    if (!isOwner && !isAdmin) {
+      // Team members strictly see only deals in their assigned stages or assigned to them
+      return deals.filter(
+        (d) => stageIdSet.has(d.stage_id) || d.assigned_to === profile?.id
+      );
+    }
+    if (selectedStageAssignee !== "all") {
+      return deals.filter((d) => stageIdSet.has(d.stage_id));
+    }
+    return deals;
+  }, [deals, visibleStages, isOwner, isAdmin, profile?.id, selectedStageAssignee]);
 
   if (loading) {
     return (
@@ -372,6 +447,58 @@ export default function PipelinesPage() {
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Stage Assignee Filter for Admin/Owner */}
+          {(isOwner || isAdmin) ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors data-[popup-open]:bg-muted"
+              >
+                <UserCheck className="h-4 w-4 text-primary" />
+                <span className="font-semibold text-xs">
+                  {selectedStageAssignee === "all"
+                    ? t("allStages")
+                    : selectedStageAssignee === "unassigned"
+                    ? t("unassignedStages")
+                    : teamMembers.find((m) => m.id === selectedStageAssignee)?.full_name ?? t("filterAssignee")}
+                </span>
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="w-56 border-border bg-popover text-popover-foreground"
+              >
+                <DropdownMenuItem
+                  onClick={() => setSelectedStageAssignee("all")}
+                  className={selectedStageAssignee === "all" ? "text-primary" : "text-popover-foreground"}
+                >
+                  {t("allStages")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setSelectedStageAssignee("unassigned")}
+                  className={selectedStageAssignee === "unassigned" ? "text-primary" : "text-popover-foreground"}
+                >
+                  {t("unassignedStages")}
+                </DropdownMenuItem>
+                {teamMembers.length > 0 && <DropdownMenuSeparator className="bg-border" />}
+                {teamMembers.map((m) => (
+                  <DropdownMenuItem
+                    key={m.id}
+                    onClick={() => setSelectedStageAssignee(m.id)}
+                    className={selectedStageAssignee === m.id ? "text-primary" : "text-popover-foreground"}
+                  >
+                    <UserCheck className="mr-2 h-3.5 w-3.5 text-primary" />
+                    {m.full_name || "Agent"}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <div className="inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary font-medium">
+              <UserCheck className="h-3.5 w-3.5" />
+              <span>Assigned Stages ({visibleStages.length})</span>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -388,7 +515,7 @@ export default function PipelinesPage() {
           <GatedButton
             canAct={canCreateDeals}
             gateReason="create deals"
-            disabled={!selectedPipelineId || stages.length === 0}
+            disabled={!selectedPipelineId || visibleStages.length === 0}
             onClick={() => handleAddDeal()}
             className="bg-primary text-primary-foreground hover:bg-primary/90"
           >
@@ -418,12 +545,22 @@ export default function PipelinesPage() {
             {t("createPipeline")}
           </GatedButton>
         </div>
+      ) : !isOwner && !isAdmin && visibleStages.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-20 text-center">
+          <GitBranch className="h-12 w-12 text-muted-foreground" />
+          <h3 className="mt-4 text-lg font-medium text-foreground">
+            No pipeline stages assigned
+          </h3>
+          <p className="mt-2 text-sm text-muted-foreground max-w-sm">
+            {t("noAssignedStages")}
+          </p>
+        </div>
       ) : (
         <>
-          <PipelineAnalytics stages={stages} deals={deals} />
+          <PipelineAnalytics stages={visibleStages} deals={visibleDeals} />
           <PipelineBoard
-            stages={stages}
-            deals={deals}
+            stages={visibleStages}
+            deals={visibleDeals}
             onDealMoved={handleDealMoved}
             onAddDeal={handleAddDeal}
             onEditDeal={handleEditDeal}
