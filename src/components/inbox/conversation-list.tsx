@@ -70,11 +70,9 @@ export function ConversationList({
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [loading, setLoading] = useState(true);
   // Contact-based filters (issue #272). Tags use OR logic (a conversation
-  // matches if its contact carries any selected tag), consistent with
-  // Broadcast audience filtering. Company is an exact match on the field.
+  // matches if its contact carries any selected tag).
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
-  const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
   const [teamMembers, setTeamMembers] = useState<{ id: string; user_id: string; full_name: string }[]>([]);
   const [selectedAssignee, setSelectedAssignee] = useState<string>("all");
 
@@ -161,18 +159,6 @@ export function ConversationList({
     };
   }, []);
 
-  // Company options are derived from the loaded conversations — there's no
-  // separate companies table, and only companies with a live conversation
-  // are worth offering as an inbox filter.
-  const companies = useMemo(() => {
-    const set = new Set<string>();
-    for (const c of conversations) {
-      const co = c.contact?.company?.trim();
-      if (co) set.add(co);
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [conversations]);
-
   const tagsById = useMemo(() => {
     const m = new Map<string, Tag>();
     for (const t of tags) m.set(t.id, t);
@@ -215,12 +201,12 @@ export function ConversationList({
       result = result.filter((c) => c.status === filter);
     }
 
-    // Contact-based filters (tags via OR logic, exact company match).
-    if (selectedTagIds.length > 0 || selectedCompany !== null) {
+    // Contact-based filters (tags via OR logic).
+    if (selectedTagIds.length > 0) {
       result = result.filter((c) =>
         matchesContactFilters(c, {
           tagIds: selectedTagIds,
-          company: selectedCompany,
+          company: null,
         })
       );
     }
@@ -241,7 +227,6 @@ export function ConversationList({
     filter,
     search,
     selectedTagIds,
-    selectedCompany,
     selectedAssignee,
     teamMembers,
     isOwner,
@@ -258,13 +243,11 @@ export function ConversationList({
 
   const clearContactFilters = useCallback(() => {
     setSelectedTagIds([]);
-    setSelectedCompany(null);
     setSelectedAssignee("all");
   }, []);
 
   const hasContactFilters =
     selectedTagIds.length > 0 ||
-    selectedCompany !== null ||
     ((isOwner || isAdmin) && selectedAssignee !== "all");
 
   const handleSearchChange = useCallback(
@@ -375,52 +358,6 @@ export function ConversationList({
             </DropdownMenu>
           )}
 
-          {companies.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                className={cn(
-                  "inline-flex max-w-40 items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
-                  selectedCompany
-                    ? "text-primary"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <span className="truncate">{selectedCompany ?? t("company")}</span>
-                <ChevronDown className="h-3 w-3 shrink-0" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="max-h-64 w-56 border-border bg-popover"
-              >
-                <DropdownMenuItem
-                  onClick={() => setSelectedCompany(null)}
-                  className={cn(
-                    "text-sm",
-                    selectedCompany === null
-                      ? "text-primary"
-                      : "text-popover-foreground"
-                  )}
-                >
-                  {t("allCompanies")}
-                </DropdownMenuItem>
-                {companies.map((co) => (
-                  <DropdownMenuItem
-                    key={co}
-                    onClick={() => setSelectedCompany(co)}
-                    className={cn(
-                      "text-sm",
-                      selectedCompany === co
-                        ? "text-primary"
-                        : "text-popover-foreground"
-                    )}
-                  >
-                    <span className="truncate">{co}</span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
           {/* Admin Assignee Filter */}
           {(isOwner || isAdmin) ? (
             <DropdownMenu>
@@ -512,15 +449,6 @@ export function ConversationList({
                 </button>
               );
             })}
-            {selectedCompany && (
-              <button
-                onClick={() => setSelectedCompany(null)}
-                className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
-              >
-                <span className="max-w-24 truncate">{selectedCompany}</span>
-                <X className="h-3 w-3" />
-              </button>
-            )}
             {(isOwner || isAdmin) && selectedAssignee !== "all" && (
               <button
                 onClick={() => setSelectedAssignee("all")}

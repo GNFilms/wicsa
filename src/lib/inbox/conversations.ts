@@ -45,8 +45,8 @@ export function normalizeConversations(
 export interface ContactFilters {
   /** Tag ids; a conversation matches if its contact has ANY of them (OR). */
   tagIds: string[];
-  /** Exact company match, or null for no company filter. */
-  company: string | null;
+  /** Exact company match, or null/undefined for no company filter. */
+  company?: string | null;
 }
 
 /**
@@ -63,7 +63,7 @@ export function matchesContactFilters(
     if (!contactTagIds.some((t) => tagIds.includes(t.id))) return false;
   }
 
-  if (company !== null && conversation.contact?.company?.trim() !== company) {
+  if (company && conversation.contact?.company?.trim() !== company) {
     return false;
   }
 

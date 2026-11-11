@@ -30,6 +30,7 @@ import { useCan } from "@/hooks/use-can";
 import { useAuth } from "@/hooks/use-auth";
 import { GatedButton } from "@/components/ui/gated-button";
 import { useTranslations } from "next-intl";
+import { getMemberColor } from "@/components/pipelines/member-colors";
 
 // Pipeline creation is admin-class (settings-tier write under
 // the new RLS); deal creation is operational and only requires
@@ -210,10 +211,14 @@ export default function PipelinesPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
+      let query = supabase
         .from("profiles")
         .select("id, user_id, full_name")
         .order("full_name");
+      if (accountId) {
+        query = query.eq("account_id", accountId);
+      }
+      const { data } = await query;
       if (!cancelled && data) {
         setTeamMembers(data as { id: string; user_id: string; full_name: string }[]);
       }
@@ -221,7 +226,7 @@ export default function PipelinesPage() {
     return () => {
       cancelled = true;
     };
-  }, [supabase]);
+  }, [supabase, accountId]);
 
   const refreshPipelines = useCallback(async () => {
     const list = await loadPipelines();
@@ -264,6 +269,23 @@ export default function PipelinesPage() {
         refreshDeals();
         return;
       }
+
+      // Record stage change activity
+      const movedDeal = deals.find((d) => d.id === dealId);
+      const fromStage = stages.find((s) => s.id === movedDeal?.stage_id)?.name;
+      const toStage = targetStage?.name;
+      fetch("/api/deals/activities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deal_id: dealId,
+          user_id: profile?.user_id,
+          account_id: accountId,
+          activity_type: "stage_change",
+          actor_name: profile?.full_name || "Team Member",
+          details: { from_stage: fromStage, to_stage: toStage },
+        }),
+      }).catch(console.error);
 
       // Auto-assign conversation when deal lands on a stage with a default assignee
       if (targetStage?.default_assignee_id) {
@@ -354,31 +376,74 @@ export default function PipelinesPage() {
 
   const visibleStages = useMemo(() => {
     if (!isOwner && !isAdmin) {
-      // Team members strictly see ONLY stages assigned to their profile
-      return stages.filter((s) => s.default_assignee_id === profile?.id);
+      // If team member is restricted to a specific stage via profile.stage_id, show that stage, otherwise show all
+      const assignedStageId = (profile as { stage_id?: string | null })?.stage_id;
+      if (assignedStageId) {
+        const assigned = stages.filter((s) => s.id === assignedStageId);
+        if (assigned.length > 0) return assigned;
+      }
+      return stages;
     }
-    if (selectedStageAssignee === "unassigned") {
-      return stages.filter((s) => !s.default_assignee_id);
-    }
-    if (selectedStageAssignee !== "all") {
-      return stages.filter((s) => s.default_assignee_id === selectedStageAssignee);
-    }
+    // Admin / owner always sees all stages (columns) of the pipeline
     return stages;
-  }, [stages, isOwner, isAdmin, profile?.id, selectedStageAssignee]);
+  }, [stages, isOwner, isAdmin, profile]);
 
   const visibleDeals = useMemo(() => {
     const stageIdSet = new Set(visibleStages.map((s: PipelineStage) => s.id));
+    const pipelineDeals = deals.filter((d) => stageIdSet.has(d.stage_id));
+
     if (!isOwner && !isAdmin) {
-      // Team members strictly see only deals in their assigned stages or assigned to them
-      return deals.filter(
-        (d) => stageIdSet.has(d.stage_id) || d.assigned_to === profile?.id
+      // Team members strictly see ONLY the leads/deals assigned to them
+      const myId = profile?.id;
+      const myUserId = profile?.user_id;
+      const myName = profile?.full_name?.trim().toLowerCase();
+      return pipelineDeals.filter(
+        (d) =>
+          d.assigned_to === myId ||
+          d.assigned_to === myUserId ||
+          d.assignee?.id === myId ||
+          d.assignee?.user_id === myUserId ||
+          (myName && d.assignee?.full_name && d.assignee.full_name.trim().toLowerCase() === myName)
       );
     }
-    if (selectedStageAssignee !== "all") {
-      return deals.filter((d) => stageIdSet.has(d.stage_id));
+
+    if (selectedStageAssignee === "unassigned") {
+      return pipelineDeals.filter((d) => !d.assigned_to && !d.assignee);
     }
-    return deals;
-  }, [deals, visibleStages, isOwner, isAdmin, profile?.id, selectedStageAssignee]);
+
+    if (selectedStageAssignee !== "all") {
+      const targetMember = teamMembers.find(
+        (m) => m.id === selectedStageAssignee || m.user_id === selectedStageAssignee,
+      );
+      const targetId = targetMember?.id || selectedStageAssignee;
+      const targetUserId = targetMember?.user_id;
+      const targetName = targetMember?.full_name?.trim().toLowerCase();
+
+      return pipelineDeals.filter((d) => {
+        // Match by profile ID or user ID in deal.assigned_to
+        if (d.assigned_to && (d.assigned_to === targetId || d.assigned_to === targetUserId)) {
+          return true;
+        }
+        // Match by joined assignee profile
+        if (d.assignee) {
+          if (d.assignee.id === targetId || d.assignee.id === targetUserId) return true;
+          if (d.assignee.user_id && (d.assignee.user_id === targetId || d.assignee.user_id === targetUserId)) return true;
+          if (targetName && d.assignee.full_name && d.assignee.full_name.trim().toLowerCase() === targetName) return true;
+        }
+        // Also match if the stage has this member as default assignee
+        const stageObj = stages.find((s) => s.id === d.stage_id);
+        if (
+          stageObj?.default_assignee_id &&
+          (stageObj.default_assignee_id === targetId || stageObj.default_assignee_id === targetUserId)
+        ) {
+          return true;
+        }
+        return false;
+      });
+    }
+
+    return pipelineDeals;
+  }, [deals, visibleStages, isOwner, isAdmin, profile, selectedStageAssignee, teamMembers, stages]);
 
   if (loading) {
     return (
@@ -454,14 +519,35 @@ export default function PipelinesPage() {
               <DropdownMenuTrigger
                 className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors data-[popup-open]:bg-muted"
               >
-                <UserCheck className="h-4 w-4 text-primary" />
-                <span className="font-semibold text-xs">
-                  {selectedStageAssignee === "all"
-                    ? t("allStages")
-                    : selectedStageAssignee === "unassigned"
-                    ? t("unassignedStages")
-                    : teamMembers.find((m) => m.id === selectedStageAssignee)?.full_name ?? t("filterAssignee")}
-                </span>
+                {(() => {
+                  const selectedMember = teamMembers.find(
+                    (m) => m.id === selectedStageAssignee || m.user_id === selectedStageAssignee,
+                  );
+                  const color = selectedMember
+                    ? getMemberColor(selectedMember.full_name || selectedMember.id)
+                    : null;
+                  return (
+                    <>
+                      {color ? (
+                        <span
+                          className="flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold text-white shadow-xs"
+                          style={{ backgroundColor: color.hex }}
+                        >
+                          {selectedMember?.full_name?.charAt(0).toUpperCase() || "A"}
+                        </span>
+                      ) : (
+                        <UserCheck className="h-4 w-4 text-primary" />
+                      )}
+                      <span className="font-semibold text-xs">
+                        {selectedStageAssignee === "all"
+                          ? "All Assignees"
+                          : selectedStageAssignee === "unassigned"
+                          ? "Unassigned Leads"
+                          : selectedMember?.full_name ?? "Filter Assignee"}
+                      </span>
+                    </>
+                  );
+                })()}
                 <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
               </DropdownMenuTrigger>
               <DropdownMenuContent
@@ -470,33 +556,48 @@ export default function PipelinesPage() {
               >
                 <DropdownMenuItem
                   onClick={() => setSelectedStageAssignee("all")}
-                  className={selectedStageAssignee === "all" ? "text-primary" : "text-popover-foreground"}
+                  className={selectedStageAssignee === "all" ? "text-primary font-medium" : "text-popover-foreground"}
                 >
-                  {t("allStages")}
+                  All Assignees
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => setSelectedStageAssignee("unassigned")}
-                  className={selectedStageAssignee === "unassigned" ? "text-primary" : "text-popover-foreground"}
+                  className={selectedStageAssignee === "unassigned" ? "text-primary font-medium" : "text-popover-foreground"}
                 >
-                  {t("unassignedStages")}
+                  Unassigned Leads
                 </DropdownMenuItem>
                 {teamMembers.length > 0 && <DropdownMenuSeparator className="bg-border" />}
-                {teamMembers.map((m) => (
-                  <DropdownMenuItem
-                    key={m.id}
-                    onClick={() => setSelectedStageAssignee(m.id)}
-                    className={selectedStageAssignee === m.id ? "text-primary" : "text-popover-foreground"}
-                  >
-                    <UserCheck className="mr-2 h-3.5 w-3.5 text-primary" />
-                    {m.full_name || "Agent"}
-                  </DropdownMenuItem>
-                ))}
+                {teamMembers.map((m) => {
+                  const color = getMemberColor(m.full_name || m.id);
+                  const isSelected = selectedStageAssignee === m.id || selectedStageAssignee === m.user_id;
+                  return (
+                    <DropdownMenuItem
+                      key={m.id}
+                      onClick={() => setSelectedStageAssignee(m.id)}
+                      className={`gap-2 cursor-pointer ${
+                        isSelected ? "bg-muted font-medium" : "text-popover-foreground"
+                      }`}
+                    >
+                      <span
+                        className="flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold text-white shadow-xs shrink-0"
+                        style={{ backgroundColor: color.hex }}
+                      >
+                        {m.full_name?.charAt(0).toUpperCase() || "A"}
+                      </span>
+                      <span className="flex-1 truncate">{m.full_name || "Agent"}</span>
+                      <span
+                        className="h-2 w-2 rounded-full shrink-0"
+                        style={{ backgroundColor: color.hex }}
+                      />
+                    </DropdownMenuItem>
+                  );
+                })}
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
             <div className="inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary font-medium">
               <UserCheck className="h-3.5 w-3.5" />
-              <span>Assigned Stages ({visibleStages.length})</span>
+              <span>Assigned Leads ({visibleDeals.length})</span>
             </div>
           )}
         </div>
