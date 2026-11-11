@@ -56,7 +56,7 @@ export function DealForm({
 }: DealFormProps) {
   const t = useTranslations("Pipelines.form");
   const supabase = createClient();
-  const { accountId, defaultCurrency, profile } = useAuth();
+  const { accountId, defaultCurrency, profile, user } = useAuth();
 
   const [title, setTitle] = useState("");
   const [value, setValue] = useState("");
@@ -183,6 +183,7 @@ export function DealForm({
       }
 
       // Record activity changes
+      const currentUserId = user?.id || profile?.user_id || profile?.id;
       const actorName = profile?.full_name || "Team Member";
       if (stageId !== deal.stage_id) {
         const fromStage = stages.find((s) => s.id === deal.stage_id)?.name;
@@ -192,7 +193,7 @@ export function DealForm({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             deal_id: deal.id,
-            user_id: profile?.user_id,
+            user_id: currentUserId,
             account_id: accountId,
             activity_type: "stage_change",
             actor_name: actorName,
@@ -210,7 +211,7 @@ export function DealForm({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             deal_id: deal.id,
-            user_id: profile?.user_id,
+            user_id: currentUserId,
             account_id: accountId,
             activity_type: "assignee_change",
             actor_name: actorName,
@@ -225,7 +226,7 @@ export function DealForm({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             deal_id: deal.id,
-            user_id: profile?.user_id,
+            user_id: currentUserId,
             account_id: accountId,
             activity_type: "due_date_change",
             actor_name: actorName,
@@ -240,7 +241,7 @@ export function DealForm({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             deal_id: deal.id,
-            user_id: profile?.user_id,
+            user_id: currentUserId,
             account_id: accountId,
             activity_type: "description_update",
             actor_name: actorName,
@@ -249,11 +250,8 @@ export function DealForm({
         }).catch(console.error);
       }
     } else {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const user = session?.user;
-      if (!user) {
+      const activeUserId = user?.id || profile?.user_id || profile?.id;
+      if (!activeUserId) {
         toast.error(t("toastNotSignedIn"));
         setSaving(false);
         return;
@@ -265,7 +263,7 @@ export function DealForm({
       }
       const { data: newDeal, error } = await supabase
         .from("deals")
-        .insert({ ...payload, user_id: user.id, account_id: accountId, status: "open" })
+        .insert({ ...payload, user_id: activeUserId, account_id: accountId, status: "open" })
         .select()
         .single();
 
@@ -282,7 +280,7 @@ export function DealForm({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             deal_id: newDeal.id,
-            user_id: user.id,
+            user_id: activeUserId,
             account_id: accountId,
             activity_type: "created",
             actor_name: profile?.full_name || "Team Member",
@@ -338,7 +336,7 @@ export function DealForm({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         deal_id: deal.id,
-        user_id: profile?.user_id,
+        user_id: user?.id || profile?.user_id || profile?.id,
         account_id: accountId,
         activity_type: "status_change",
         actor_name: profile?.full_name || "Team Member",

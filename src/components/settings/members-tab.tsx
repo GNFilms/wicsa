@@ -152,6 +152,7 @@ export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [createMemberOpen, setCreateMemberOpen] = useState(false);
   const [removingMember, setRemovingMember] = useState<Member | null>(null);
+  const [deleteLoginToo, setDeleteLoginToo] = useState(false);
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
     null,
   );
@@ -262,6 +263,7 @@ export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
           role: pickedCustom?.name || tRoles(nextRole),
         })
       );
+      void loadEverything();
     } catch (err) {
       setMembers((prev) =>
         prev.map((m) =>
@@ -286,10 +288,10 @@ export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
     if (!removingMember) return;
     setPendingMemberAction(removingMember.user_id);
     try {
-      const res = await fetch(
-        `/api/account/members/${removingMember.user_id}`,
-        { method: 'DELETE' },
-      );
+      const url = deleteLoginToo
+        ? `/api/account/members/${removingMember.user_id}?deleteUser=true`
+        : `/api/account/members/${removingMember.user_id}`;
+      const res = await fetch(url, { method: 'DELETE' });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
         toast.error(payload.error || t('removeFailed'));
@@ -300,6 +302,8 @@ export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
         prev.filter((m) => m.user_id !== removingMember.user_id),
       );
       setRemovingMember(null);
+      setDeleteLoginToo(false);
+      void loadEverything();
     } catch (err) {
       console.error('[MembersTab] remove error:', err);
       toast.error(t('networkError'));
@@ -615,7 +619,7 @@ export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
                   {t('noPendingTitle')}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {t.rich('noPendingDesc', { bold: (chunks) => <strong>{chunks}</strong> })}
+                  {t.rich('noPendingDesc', { bold: (chunks: React.ReactNode) => <strong>{chunks}</strong> })}
                 </p>
               </CardContent>
             </Card>
@@ -688,7 +692,10 @@ export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
       <Dialog
         open={removingMember !== null}
         onOpenChange={(open) => {
-          if (!open) setRemovingMember(null);
+          if (!open) {
+            setRemovingMember(null);
+            setDeleteLoginToo(false);
+          }
         }}
       >
         <DialogContent className="bg-popover border-border sm:max-w-sm">
@@ -697,17 +704,31 @@ export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
               <AlertTriangle className="size-4 text-amber-400" />
               {t('removeDialogTitle')}
             </DialogTitle>
-            <DialogDescription className="text-muted-foreground">
-              {t.rich('removeDialogDesc', { 
-                name: removingMember?.full_name || t('unnamed'),
-                bold: (chunks: React.ReactNode) => <strong>{chunks}</strong>
-              })}
+            <DialogDescription className="text-muted-foreground space-y-3">
+              <span>
+                {t.rich('removeDialogDesc', { 
+                  name: removingMember?.full_name || t('unnamed'),
+                  bold: (chunks: React.ReactNode) => <strong>{chunks}</strong>
+                })}
+              </span>
+              <label className="flex items-center gap-2.5 cursor-pointer pt-2 text-xs text-foreground/80 hover:text-foreground select-none border-t border-border/60">
+                <input
+                  type="checkbox"
+                  checked={deleteLoginToo}
+                  onChange={(e) => setDeleteLoginToo(e.target.checked)}
+                  className="rounded border-border accent-red-600 size-4 cursor-pointer"
+                />
+                <span>Also permanently delete this member&apos;s login credentials</span>
+              </label>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="bg-popover border-border">
             <Button
               variant="outline"
-              onClick={() => setRemovingMember(null)}
+              onClick={() => {
+                setRemovingMember(null);
+                setDeleteLoginToo(false);
+              }}
               className="border-border text-muted-foreground hover:bg-muted"
             >
               {t('cancel')}
@@ -723,7 +744,7 @@ export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
                   {t('removing')}
                 </>
               ) : (
-                t('removeBtn')
+                deleteLoginToo ? 'Delete user' : t('removeBtn')
               )}
             </Button>
           </DialogFooter>

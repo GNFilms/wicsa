@@ -124,7 +124,7 @@ export function useBrowserNotifications(): void {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages" },
-        (payload) => {
+        (payload: { new: Record<string, any>; [key: string]: any }) => {
           // Re-check every time: the user can revoke permission in the
           // browser without the preference flipping.
           if (getNotificationPermission() !== "granted") return;

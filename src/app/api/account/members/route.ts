@@ -14,10 +14,9 @@
 // ============================================================
 
 import { NextResponse } from "next/server";
-import { createClient as createAdminSupabase } from "@supabase/supabase-js";
-
 import { getCurrentAccount, requireRole, toErrorResponse } from "@/lib/auth/account";
 import { canManageMembers, isAccountRole } from "@/lib/auth/roles";
+import { getAdminClient } from "@/lib/supabase/admin";
 import type { AccountMember } from "@/types";
 import {
   checkRateLimit,
@@ -174,23 +173,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-    if (!serviceKey || !supabaseUrl) {
-      return NextResponse.json(
-        { error: "Server configuration missing service credentials" },
-        { status: 500 },
-      );
-    }
-
-    const adminSupabase = createAdminSupabase(supabaseUrl, serviceKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+    const adminSupabase = getAdminClient();
 
     // 1. Create user in Supabase Auth directly
     const { data: authData, error: createAuthError } =
-      await adminSupabase.auth.admin.createUser({
+      await (adminSupabase.auth as any).admin.createUser({
         email: trimmedEmail,
         password: trimmedPassword,
         email_confirm: true,

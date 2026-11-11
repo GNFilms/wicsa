@@ -30,6 +30,7 @@ import type { CustomRole, RolePermissions } from "@/types";
 
 interface Profile {
   id: string;
+  user_id?: string;
   full_name: string | null;
   email: string;
   avatar_url: string | null;
@@ -163,6 +164,7 @@ function sleep(ms: number) {
 /** Shape of the `profiles` select below. */
 interface ProfileRow {
   id: string;
+  user_id?: string;
   full_name: string | null;
   email: string;
   avatar_url: string | null;
@@ -317,6 +319,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setProfile({
           id: data.id,
+          user_id: data.user_id || data.id,
           full_name: data.full_name,
           email: data.email,
           avatar_url: data.avatar_url,
