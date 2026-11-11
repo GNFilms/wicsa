@@ -4,7 +4,7 @@ import type { Deal, PipelineStage } from "@/types";
 import { Calendar, Check, X } from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
 import { useTranslations } from "next-intl";
-import { getMemberColor } from "@/lib/member-colors";
+import { getMemberColor } from "./member-colors";
 
 interface DealCardProps {
   deal: Deal;

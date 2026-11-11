@@ -287,3 +287,4 @@ export function DealActivities({
     </div>
   );
 }
+
