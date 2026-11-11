@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
+import { DealActivities } from "./deal-activities";
 
 interface DealFormProps {
   open: boolean;
@@ -55,7 +56,7 @@ export function DealForm({
 }: DealFormProps) {
   const t = useTranslations("Pipelines.form");
   const supabase = createClient();
-  const { accountId, defaultCurrency } = useAuth();
+  const { accountId, defaultCurrency, profile } = useAuth();
 
   const [title, setTitle] = useState("");
   const [value, setValue] = useState("");
@@ -180,6 +181,73 @@ export function DealForm({
         setSaving(false);
         return;
       }
+
+      // Record activity changes
+      const actorName = profile?.full_name || "Team Member";
+      if (stageId !== deal.stage_id) {
+        const fromStage = stages.find((s) => s.id === deal.stage_id)?.name;
+        const toStage = stages.find((s) => s.id === stageId)?.name;
+        fetch("/api/deals/activities", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            deal_id: deal.id,
+            user_id: profile?.user_id,
+            account_id: accountId,
+            activity_type: "stage_change",
+            actor_name: actorName,
+            details: { from_stage: fromStage, to_stage: toStage },
+          }),
+        }).catch(console.error);
+      }
+
+      if (assignedTo !== (deal.assigned_to || "")) {
+        const toAssignee =
+          profiles.find((p) => p.id === assignedTo)?.full_name ||
+          (assignedTo ? "Team Member" : null);
+        fetch("/api/deals/activities", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            deal_id: deal.id,
+            user_id: profile?.user_id,
+            account_id: accountId,
+            activity_type: "assignee_change",
+            actor_name: actorName,
+            details: { to_assignee: toAssignee },
+          }),
+        }).catch(console.error);
+      }
+
+      if (expectedCloseDate !== (deal.expected_close_date || "")) {
+        fetch("/api/deals/activities", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            deal_id: deal.id,
+            user_id: profile?.user_id,
+            account_id: accountId,
+            activity_type: "due_date_change",
+            actor_name: actorName,
+            details: { date: expectedCloseDate },
+          }),
+        }).catch(console.error);
+      }
+
+      if (notes.trim() !== (deal.notes || "").trim()) {
+        fetch("/api/deals/activities", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            deal_id: deal.id,
+            user_id: profile?.user_id,
+            account_id: accountId,
+            activity_type: "description_update",
+            actor_name: actorName,
+            details: {},
+          }),
+        }).catch(console.error);
+      }
     } else {
       const {
         data: { session },
@@ -195,13 +263,32 @@ export function DealForm({
         setSaving(false);
         return;
       }
-      const { error } = await supabase
+      const { data: newDeal, error } = await supabase
         .from("deals")
-        .insert({ ...payload, user_id: user.id, account_id: accountId, status: "open" });
+        .insert({ ...payload, user_id: user.id, account_id: accountId, status: "open" })
+        .select()
+        .single();
+
       if (error) {
         toast.error(t("toastFailedCreate"));
         setSaving(false);
         return;
+      }
+
+      // Record deal created activity
+      if (newDeal) {
+        fetch("/api/deals/activities", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            deal_id: newDeal.id,
+            user_id: user.id,
+            account_id: accountId,
+            activity_type: "created",
+            actor_name: profile?.full_name || "Team Member",
+            details: { title: payload.title },
+          }),
+        }).catch(console.error);
       }
     }
 
@@ -244,6 +331,21 @@ export function DealForm({
       toast.error(t("toastFailedStatus"));
       return;
     }
+
+    // Record status change activity
+    fetch("/api/deals/activities", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        deal_id: deal.id,
+        user_id: profile?.user_id,
+        account_id: accountId,
+        activity_type: "status_change",
+        actor_name: profile?.full_name || "Team Member",
+        details: { status },
+      }),
+    }).catch(console.error);
+
     toast.success(
       status === "won" ? t("toastMarkedWon") : status === "lost" ? t("toastMarkedLost") : t("toastReopened"),
     );
@@ -446,6 +548,15 @@ export function DealForm({
                   </Button>
                 )}
               </div>
+            )}
+
+            {deal && (
+              <DealActivities
+                dealId={deal.id}
+                deal={deal}
+                stages={stages}
+                profiles={profiles}
+              />
             )}
           </div>
 

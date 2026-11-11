@@ -4,6 +4,7 @@ import type { Deal, PipelineStage } from "@/types";
 import { Calendar, Check, X } from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
 import { useTranslations } from "next-intl";
+import { getMemberColor } from "@/lib/member-colors";
 
 interface DealCardProps {
   deal: Deal;
@@ -30,6 +31,7 @@ export function DealCard({ deal, stage, onEdit, isOverlay }: DealCardProps) {
   const t = useTranslations("Pipelines.card");
   const contactLabel = deal.contact?.name || deal.contact?.phone || t("noContact");
   const assigneeLabel = deal.assignee?.full_name || null;
+  const memberColor = getMemberColor(assigneeLabel || deal.assigned_to);
 
   return (
     <button
@@ -95,10 +97,16 @@ export function DealCard({ deal, stage, onEdit, isOverlay }: DealCardProps) {
       {assigneeLabel && (
         <div className="mt-2 flex items-center justify-end">
           <span
-            title={assigneeLabel}
-            className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary"
+            title={`Assigned to ${assigneeLabel}`}
+            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold border ${memberColor.bg} ${memberColor.text} ${memberColor.border}`}
           >
-            {initials(assigneeLabel)}
+            <span
+              className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] font-bold text-white shadow-xs"
+              style={{ backgroundColor: memberColor.hex }}
+            >
+              {initials(assigneeLabel)}
+            </span>
+            <span className="truncate max-w-[100px]">{assigneeLabel}</span>
           </span>
         </div>
       )}

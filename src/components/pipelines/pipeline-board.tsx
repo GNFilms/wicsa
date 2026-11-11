@@ -38,6 +38,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { formatCurrency } from "@/lib/currency";
 import { useTranslations } from "next-intl";
+import { getMemberColor } from "@/lib/member-colors";
 
 interface PipelineBoardProps {
   stages: PipelineStage[];
@@ -326,20 +327,41 @@ function StageColumn({
 
       <div className="flex items-center justify-between text-xs text-muted-foreground mt-0.5">
         <span>{formatCurrency(totalValue, currency)}</span>
-        <button
-          type="button"
-          onClick={() => {
-            void loadProfiles();
-            setAssigneeModalOpen(true);
-          }}
-          className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-          title="Click to change default assignee"
-        >
-          <UserCheck className="size-3 text-primary" />
-          <span className="truncate max-w-[110px]">
-            {profiles.find((p) => p.id === (currentAssigneeId ?? stage.default_assignee_id))?.full_name || (stage.default_assignee_id ? "Assigned" : "Assignee")}
-          </span>
-        </button>
+        {(() => {
+          const assigneeProfile = profiles.find(
+            (p) => p.id === (currentAssigneeId ?? stage.default_assignee_id),
+          );
+          const color = getMemberColor(assigneeProfile?.full_name || stage.default_assignee_id);
+          return (
+            <button
+              type="button"
+              onClick={() => {
+                void loadProfiles();
+                setAssigneeModalOpen(true);
+              }}
+              className={`inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                assigneeProfile
+                  ? `${color.bg} ${color.text} ${color.border}`
+                  : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+              title="Click to change default assignee"
+            >
+              {assigneeProfile ? (
+                <span
+                  className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] font-bold text-white shadow-xs"
+                  style={{ backgroundColor: color.hex }}
+                >
+                  {assigneeProfile.full_name?.charAt(0).toUpperCase() || "A"}
+                </span>
+              ) : (
+                <UserCheck className="size-3 text-muted-foreground" />
+              )}
+              <span className="truncate max-w-[110px]">
+                {assigneeProfile?.full_name || "Assignee"}
+              </span>
+            </button>
+          );
+        })()}
       </div>
 
       {/* Default Assignee modal */}
