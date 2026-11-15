@@ -42,6 +42,7 @@ import {
   Camera,
   MapPin,
   Paperclip,
+  GitBranch,
 } from 'lucide-react';
 import { AttachPhotoDialog } from './attach-photo-dialog';
 import { ContactAttachments } from './contact-attachments';
@@ -105,6 +106,16 @@ export function ContactDetailView({
   // Deals tab
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loadingDeals, setLoadingDeals] = useState(false);
+
+  // Add to Pipeline states
+  const [showAddPipeline, setShowAddPipeline] = useState(false);
+  const [pipelines, setPipelines] = useState<{ id: string; name: string }[]>([]);
+  const [stages, setStages] = useState<Record<string, { id: string; name: string; color: string }[]>>({});
+  const [selectedPipelineId, setSelectedPipelineId] = useState('');
+  const [selectedStageId, setSelectedStageId] = useState('');
+  const [dealTitle, setDealTitle] = useState('');
+  const [dealValue, setDealValue] = useState('0');
+  const [addingPipelineDeal, setAddingPipelineDeal] = useState(false);
 
   const fetchContact = useCallback(async () => {
     if (!contactId) return;
@@ -189,6 +200,78 @@ export function ContactDetailView({
     setDeals((data ?? []) as Deal[]);
     setLoadingDeals(false);
   }, [contactId, supabase]);
+
+  const fetchPipelinesAndStages = useCallback(async () => {
+    if (!accountId) return;
+    const [pipeRes, stageRes] = await Promise.all([
+      supabase.from('pipelines').select('id, name').eq('account_id', accountId),
+      supabase.from('pipeline_stages').select('id, pipeline_id, name, color').eq('account_id', accountId).order('display_order'),
+    ]);
+    if (pipeRes.data) {
+      setPipelines(pipeRes.data);
+      if (pipeRes.data.length > 0 && !selectedPipelineId) {
+        setSelectedPipelineId(pipeRes.data[0].id);
+      }
+    }
+    if (stageRes.data) {
+      const stageMap: Record<string, { id: string; name: string; color: string }[]> = {};
+      stageRes.data.forEach((st) => {
+        if (!stageMap[st.pipeline_id]) stageMap[st.pipeline_id] = [];
+        stageMap[st.pipeline_id].push(st);
+      });
+      setStages(stageMap);
+    }
+  }, [accountId, selectedPipelineId, supabase]);
+
+  const handleSaveToPipeline = async () => {
+    if (!contactId || !selectedPipelineId || !selectedStageId) {
+      toast.error('Please select a pipeline and stage');
+      return;
+    }
+
+    setAddingPipelineDeal(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const currentUser = session?.user;
+
+      const title = dealTitle.trim() || `${contact?.name || contact?.phone || 'Lead'} - Deal`;
+      const numValue = parseFloat(dealValue) || 0;
+
+      const { data, error } = await supabase
+        .from('deals')
+        .insert({
+          title,
+          value: numValue,
+          contact_id: contactId,
+          pipeline_id: selectedPipelineId,
+          stage_id: selectedStageId,
+          account_id: accountId,
+          user_id: currentUser?.id,
+          status: 'open',
+        })
+        .select('*, stage:pipeline_stages(*)')
+        .single();
+
+      if (error) throw error;
+
+      toast.success('Contact added to pipeline successfully!');
+      if (data) {
+        setDeals((prev) => [data as Deal, ...prev]);
+      }
+      setShowAddPipeline(false);
+      setDealTitle('');
+      setDealValue('0');
+      fetchDeals();
+      onUpdated?.();
+    } catch (err: unknown) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : 'Failed to add to pipeline');
+    } finally {
+      setAddingPipelineDeal(false);
+    }
+  };
 
   useEffect(() => {
     if (open && contactId) {
@@ -756,7 +839,120 @@ export function ContactDetailView({
               </TabsContent>
 
               {/* Deals Tab */}
-              <TabsContent value="deals" className="flex-1 overflow-y-auto px-4 py-3">
+              <TabsContent value="deals" className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+                {/* Header matching Image 2 */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <GitBranch className="h-3.5 w-3.5 text-primary" />
+                    <span>Pipelines & Deals</span>
+                    <span className="text-[10px] text-muted-foreground">({deals.length})</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      if (!showAddPipeline) {
+                        setDealTitle(contact?.name || contact?.phone || '');
+                        fetchPipelinesAndStages();
+                      }
+                      setShowAddPipeline(!showAddPipeline);
+                    }}
+                    className="h-7 px-2 text-xs text-primary hover:bg-primary/10 gap-1"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add to Pipeline
+                  </Button>
+                </div>
+
+                {/* Add to Pipeline Form Card (Matching Image 2) */}
+                {showAddPipeline && (
+                  <div className="rounded-xl border border-border bg-card p-3.5 shadow-sm space-y-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-foreground">Add to Pipeline</h4>
+                      <p className="text-xs text-muted-foreground">Push contact to a sales pipeline stage</p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-foreground">Select Pipeline</Label>
+                      {pipelines.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">No pipelines found</p>
+                      ) : (
+                        <select
+                          value={selectedPipelineId}
+                          onChange={(e) => {
+                            setSelectedPipelineId(e.target.value);
+                            const currentStages = stages[e.target.value] || [];
+                            if (currentStages.length > 0) {
+                              setSelectedStageId(currentStages[0].id);
+                            }
+                          }}
+                          className="flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-xs text-foreground shadow-xs focus:border-primary focus:outline-none"
+                        >
+                          <option value="" disabled>-- Choose Pipeline --</option>
+                          {pipelines.map((p) => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-foreground">Select Stage</Label>
+                      <select
+                        value={selectedStageId}
+                        onChange={(e) => setSelectedStageId(e.target.value)}
+                        className="flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-xs text-foreground shadow-xs focus:border-primary focus:outline-none"
+                      >
+                        <option value="" disabled>-- Choose Stage --</option>
+                        {(stages[selectedPipelineId] || []).map((st) => (
+                          <option key={st.id} value={st.id}>{st.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-foreground">Deal Title (Optional)</Label>
+                      <Input
+                        value={dealTitle}
+                        onChange={(e) => setDealTitle(e.target.value)}
+                        placeholder="Deal title"
+                        className="h-8 text-xs bg-background"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-foreground">Value (₹)</Label>
+                      <Input
+                        type="number"
+                        value={dealValue}
+                        onChange={(e) => setDealValue(e.target.value)}
+                        placeholder="0"
+                        className="h-8 text-xs bg-background font-mono"
+                      />
+                    </div>
+
+                    <div className="pt-1 flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={handleSaveToPipeline}
+                        disabled={addingPipelineDeal || !selectedPipelineId || !selectedStageId}
+                        className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 text-xs h-8 gap-1.5"
+                      >
+                        {addingPipelineDeal && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                        Save to Pipeline
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowAddPipeline(false)}
+                        className="h-8 text-xs"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 {loadingDeals ? (
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="size-5 animate-spin text-primary" />

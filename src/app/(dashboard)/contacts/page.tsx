@@ -51,12 +51,18 @@ import {
   X,
   Camera,
   GitBranch,
+  Tag as TagIcon,
+  UserPlus,
+  Send,
+  CheckCheck,
 } from 'lucide-react';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
 import { ImportModal } from '@/components/contacts/import-modal';
 import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager';
 import { AttachPhotoDialog } from '@/components/contacts/attach-photo-dialog';
+import { TemplatePicker, type TemplateSendValues } from '@/components/inbox/template-picker';
+import type { MessageTemplate, AccountMember } from '@/types';
 import { useCan } from '@/hooks/use-can';
 import { useAuth } from '@/hooks/use-auth';
 import { GatedButton } from '@/components/ui/gated-button';
@@ -196,6 +202,141 @@ export default function ContactsPage() {
     setContacts((prev) =>
       prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
     );
+  };
+
+  // Bulk actions states
+  const [bulkTagOpen, setBulkTagOpen] = useState(false);
+  const [selectedBulkTagId, setSelectedBulkTagId] = useState('');
+  const [applyingBulkTag, setApplyingBulkTag] = useState(false);
+
+  const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
+  const [teamMembers, setTeamMembers] = useState<AccountMember[]>([]);
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState('');
+  const [assigningMembers, setAssigningMembers] = useState(false);
+
+  const [bulkBroadcastOpen, setBulkBroadcastOpen] = useState(false);
+  const [sendingBulkBroadcast, setSendingBulkBroadcast] = useState(false);
+
+  const handleSelectAllInWorkspace = async () => {
+    if (selected.size === totalCount) {
+      setSelected(new Set());
+      return;
+    }
+    try {
+      const { data, error } = await supabase.from('contacts').select('id');
+      if (error) throw error;
+      if (data) {
+        setSelected(new Set(data.map((c) => c.id)));
+        toast.success(`Selected all ${data.length} contacts!`);
+      }
+    } catch {
+      toast.error('Failed to select all contacts');
+    }
+  };
+
+  const handleApplyBulkTag = async () => {
+    if (!selectedBulkTagId || selected.size === 0) {
+      toast.error('Please select a tag');
+      return;
+    }
+    setApplyingBulkTag(true);
+    try {
+      const rows = Array.from(selected).map((cid) => ({
+        contact_id: cid,
+        tag_id: selectedBulkTagId,
+      }));
+      const { error } = await supabase.from('contact_tags').upsert(rows, { onConflict: 'contact_id,tag_id' });
+      if (error) throw error;
+      toast.success(`Tag applied to ${selected.size} contacts!`);
+      setBulkTagOpen(false);
+      setSelectedBulkTagId('');
+      fetchContacts();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to apply tag');
+    } finally {
+      setApplyingBulkTag(false);
+    }
+  };
+
+  const openBulkAssign = async () => {
+    try {
+      const res = await fetch('/api/account/members');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.members) {
+          setTeamMembers(json.members);
+          if (json.members.length > 0) setSelectedAssigneeId(json.members[0].user_id);
+        }
+      }
+    } catch {}
+    setBulkAssignOpen(true);
+  };
+
+  const handleApplyBulkAssign = async () => {
+    if (!selectedAssigneeId || selected.size === 0) {
+      toast.error('Please select a team member');
+      return;
+    }
+    setAssigningMembers(true);
+    try {
+      const selectedIds = Array.from(selected);
+      // Update conversations where contact_id is in selected
+      const { error } = await supabase
+        .from('conversations')
+        .update({ assigned_agent_id: selectedAssigneeId })
+        .in('contact_id', selectedIds);
+
+      if (error) throw error;
+
+      const member = teamMembers.find((m) => m.user_id === selectedAssigneeId);
+      const name = member?.full_name || member?.email || 'Team member';
+      toast.success(`Assigned ${selected.size} contacts to ${name}!`);
+      setBulkAssignOpen(false);
+      setSelected(new Set());
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to assign member');
+    } finally {
+      setAssigningMembers(false);
+    }
+  };
+
+  const handleSendBulkBroadcast = async (
+    template: MessageTemplate,
+    values: TemplateSendValues,
+  ) => {
+    setSendingBulkBroadcast(true);
+    const selectedList = contacts.filter((c) => selected.has(c.id));
+    let sentCount = 0;
+    try {
+      for (const c of selectedList) {
+        try {
+          await fetch('/api/whatsapp/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contact_id: c.id,
+              message_type: 'template',
+              template_name: template.name,
+              template_language: template.language,
+              template_message_params: {
+                body: values.body,
+                headerText: values.headerText,
+                buttonParams: values.buttonParams,
+              },
+              template_params: values.body,
+            }),
+          });
+          sentCount++;
+        } catch {}
+      }
+      toast.success(`Broadcast sent to ${sentCount} contacts!`);
+      setBulkBroadcastOpen(false);
+      setSelected(new Set());
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send broadcast');
+    } finally {
+      setSendingBulkBroadcast(false);
+    }
   };
 
   // Bulk selection (page-scoped — only the loaded rows are selectable)
@@ -608,40 +749,96 @@ export default function ContactsPage() {
 
       {/* Bulk action bar */}
       {selected.size > 0 && (
-        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/40 px-4 py-2">
-          <p className="text-sm text-foreground">
-            {t('selectedCount', { count: selected.size })}
-          </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 p-3 shadow-xs">
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSelected(new Set())}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              {t('clearSelection')}
-            </Button>
-            {isAdmin && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => openBulkAddToPipeline()}
-                className="border-border text-foreground hover:bg-muted gap-1 text-xs"
+            <span className="flex h-5 items-center justify-center rounded-full bg-primary/20 px-2 text-xs font-bold text-primary">
+              {selected.size}
+            </span>
+            <span className="text-xs font-medium text-foreground">
+              {t('selectedCount', { count: selected.size })}
+            </span>
+            {selected.size < totalCount && (
+              <button
+                type="button"
+                onClick={handleSelectAllInWorkspace}
+                className="text-xs text-primary underline hover:text-primary/80 ml-1 font-semibold"
               >
-                <GitBranch className="size-3.5 text-primary" />
-                Add to Pipeline
-              </Button>
+                Select all {totalCount} contacts
+              </button>
             )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {/* 1. Label / Tag */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setBulkTagOpen(true)}
+              className="border-border text-foreground hover:bg-muted gap-1 text-xs h-8"
+              title="Add tag to selected contacts"
+            >
+              <TagIcon className="size-3.5 text-primary" />
+              <span>Label / Tag</span>
+            </Button>
+
+            {/* 2. Assign Member */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={openBulkAssign}
+              className="border-border text-foreground hover:bg-muted gap-1 text-xs h-8"
+              title="Assign team member"
+            >
+              <UserPlus className="size-3.5 text-primary" />
+              <span>Assign</span>
+            </Button>
+
+            {/* 3. Add to Pipeline */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => openBulkAddToPipeline()}
+              className="border-border text-foreground hover:bg-muted gap-1 text-xs h-8"
+              title="Push to pipeline stage"
+            >
+              <GitBranch className="size-3.5 text-primary" />
+              <span>Pipeline</span>
+            </Button>
+
+            {/* 4. Send Broadcast */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setBulkBroadcastOpen(true)}
+              className="border-border text-foreground hover:bg-muted gap-1 text-xs h-8"
+              title="Send template broadcast"
+            >
+              <Send className="size-3.5 text-primary" />
+              <span>Broadcast</span>
+            </Button>
+
+            {/* 5. Delete Selected */}
             <GatedButton
               variant="destructive"
               size="sm"
               canAct={canEdit}
               gateReason="delete contacts"
               onClick={() => setBulkDeleteOpen(true)}
+              className="gap-1 text-xs h-8"
             >
-              <Trash2 className="size-4" />
-              {t('deleteSelected')}
+              <Trash2 className="size-3.5" />
+              <span>{t('deleteSelected')}</span>
             </GatedButton>
+
+            {/* Clear Selection */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelected(new Set())}
+              className="text-muted-foreground hover:text-foreground text-xs h-8"
+            >
+              {t('clearSelection')}
+            </Button>
           </div>
         </div>
       )}
@@ -1129,6 +1326,141 @@ export default function ContactsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Bulk Tag Dialog */}
+      <Dialog open={bulkTagOpen} onOpenChange={setBulkTagOpen}>
+        <DialogContent className="sm:max-w-md bg-card text-card-foreground border-border">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-semibold">
+              <TagIcon className="size-4 text-primary" />
+              Apply Tag to {selected.size} Contacts
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Choose an existing label/tag to categorize all selected contacts.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-foreground">Select Label / Tag</Label>
+              <div className="flex flex-wrap gap-2 pt-1 max-h-48 overflow-y-auto">
+                {Object.values(tagsMap).map((tag) => {
+                  const isSel = selectedBulkTagId === tag.id;
+                  return (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      onClick={() => setSelectedBulkTagId(tag.id)}
+                      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-all cursor-pointer ${
+                        isSel
+                          ? "ring-2 ring-primary ring-offset-1 ring-offset-background font-semibold"
+                          : "opacity-80 hover:opacity-100"
+                      }`}
+                      style={{
+                        backgroundColor: `${tag.color}25`,
+                        color: tag.color,
+                      }}
+                    >
+                      <span className="size-2 rounded-full" style={{ backgroundColor: tag.color }} />
+                      {tag.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" size="sm" onClick={() => setBulkTagOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleApplyBulkTag}
+              disabled={applyingBulkTag || !selectedBulkTagId}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 gap-1.5"
+            >
+              {applyingBulkTag && <Loader2 className="size-3.5 animate-spin" />}
+              Apply Tag
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Assign Member Dialog */}
+      <Dialog open={bulkAssignOpen} onOpenChange={setBulkAssignOpen}>
+        <DialogContent className="sm:max-w-md bg-card text-card-foreground border-border">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-semibold">
+              <UserPlus className="size-4 text-primary" />
+              Assign {selected.size} Contacts to Team Member
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Select an agent to handle conversations for these contacts.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-foreground">Select Agent / Team Member</Label>
+              {teamMembers.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">No team members found.</p>
+              ) : (
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {teamMembers.map((member) => {
+                    const isSel = selectedAssigneeId === member.user_id;
+                    return (
+                      <button
+                        key={member.user_id}
+                        type="button"
+                        onClick={() => setSelectedAssigneeId(member.user_id)}
+                        className={`w-full flex items-center justify-between p-2.5 rounded-lg border text-xs transition-all cursor-pointer ${
+                          isSel
+                            ? "border-primary bg-primary/10 font-semibold"
+                            : "border-border/70 hover:bg-muted/50"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="flex size-7 items-center justify-center rounded-full bg-primary/20 text-primary font-bold">
+                            {(member.full_name || member.email || "U").charAt(0).toUpperCase()}
+                          </span>
+                          <div className="text-left">
+                            <p className="text-foreground font-medium">{member.full_name || member.email}</p>
+                            <p className="text-[10px] text-muted-foreground capitalize">{member.account_role}</p>
+                          </div>
+                        </div>
+                        {isSel && <CheckCheck className="size-4 text-primary" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" size="sm" onClick={() => setBulkAssignOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleApplyBulkAssign}
+              disabled={assigningMembers || !selectedAssigneeId}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 gap-1.5"
+            >
+              {assigningMembers && <Loader2 className="size-3.5 animate-spin" />}
+              Assign Contacts
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Broadcast Template Picker */}
+      <TemplatePicker
+        open={bulkBroadcastOpen}
+        onOpenChange={setBulkBroadcastOpen}
+        onSelect={handleSendBulkBroadcast}
+      />
     </div>
   );
 }

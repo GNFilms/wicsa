@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import {
   Dialog,
   DialogContent,
@@ -42,12 +43,27 @@ export function ReminderCalendarModal({
   onOpenChange,
   contact,
 }: ReminderCalendarModalProps) {
+  const router = useRouter();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState<"month" | "week" | "day">("month");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+
+  const handleTaskClick = (task: Task) => {
+    onOpenChange(false);
+    if (task.conversation_id) {
+      router.push(`/inbox?c=${task.conversation_id}`);
+      return;
+    }
+    const targetContactId = task.contact_id || task.contact?.id;
+    if (targetContactId) {
+      router.push(`/inbox?contactId=${targetContactId}`);
+      return;
+    }
+    router.push(`/inbox`);
+  };
 
   const fetchTasks = async () => {
     setLoading(true);
@@ -271,9 +287,9 @@ export function ReminderCalendarModal({
                       {dayTasks.slice(0, 3).map((t) => (
                         <div
                           key={t.id}
-                          onClick={() => setSelectedTask(t)}
-                          title={`${t.category || "Task"}: ${t.title}`}
-                          className="truncate rounded bg-primary/20 hover:bg-primary/30 border border-primary/30 px-1.5 py-0.5 text-[10px] font-medium text-foreground cursor-pointer transition-colors shadow-xs"
+                          onClick={() => handleTaskClick(t)}
+                          title={`Click to open chat with client for: ${t.title}`}
+                          className="truncate rounded bg-primary/20 hover:bg-primary/40 border border-primary/30 px-1.5 py-0.5 text-[10px] font-medium text-foreground cursor-pointer transition-colors shadow-xs"
                         >
                           {t.title}
                         </div>

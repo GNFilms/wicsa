@@ -45,6 +45,7 @@ function InboxPageInner() {
    * automatically instead of showing the empty center panel.
    */
   const deepLinkConvId = searchParams.get("c");
+  const deepLinkContactId = searchParams.get("contactId");
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] =
@@ -466,9 +467,38 @@ function InboxPageInner() {
             );
           }
         }
+      } else if (
+        deepLinkContactId &&
+        autoSelectedForDeepLinkRef.current !== `contact-${deepLinkContactId}` &&
+        loaded.length > 0
+      ) {
+        autoSelectedForDeepLinkRef.current = `contact-${deepLinkContactId}`;
+        const match = loaded.find((c) => c.contact_id === deepLinkContactId);
+        if (match) {
+          setActiveConversation(match);
+          setActiveContact(match.contact ?? null);
+          setMessages([]);
+        } else {
+          // Query DB for conversation with this contact_id
+          (async () => {
+            const supabase = createClient();
+            const { data } = await supabase
+              .from("conversations")
+              .select(CONVERSATION_SELECT)
+              .eq("contact_id", deepLinkContactId)
+              .limit(1);
+            if (data && data.length > 0) {
+              const norm = normalizeConversation(data[0]);
+              setConversations((prev) => [norm, ...prev]);
+              setActiveConversation(norm);
+              setActiveContact(norm.contact ?? null);
+              setMessages([]);
+            }
+          })().catch(console.error);
+        }
       }
     },
-    [deepLinkConvId, activeConversation?.id]
+    [deepLinkConvId, deepLinkContactId, activeConversation?.id]
   );
 
   const handleSelectConversation = useCallback(
@@ -697,141 +727,6 @@ function InboxPageInner() {
           </p>
         </div>
       )}
-
-      {/* Top Quick Bar: 3 Sortings (Next 30 Min, Next 3 Hours, Today) & Clickable Reminders */}
-      <div className="flex h-11 shrink-0 items-center justify-between border-b border-border bg-card/75 px-3 sm:px-4 text-xs backdrop-blur-xs gap-2">
-        <div className="flex items-center gap-2 overflow-x-auto py-1 scrollbar-none min-w-0 flex-1">
-          {/* Main Calendar / Reminders button */}
-          <button
-            type="button"
-            onClick={() => setCalendarModalOpen(true)}
-            className="flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors shadow-xs shrink-0 cursor-pointer"
-            title="Open Reminders Calendar"
-          >
-            <CalendarIcon className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Reminders & Tasks</span>
-            <span className="sm:hidden">Tasks</span>
-            {upcomingTasks.length > 0 && (
-              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] text-primary-foreground font-bold">
-                {upcomingTasks.length}
-              </span>
-            )}
-          </button>
-
-          {/* 3 Sorting Pills */}
-          <div className="flex items-center gap-1 shrink-0 bg-muted/70 p-0.5 rounded-full border border-border/60">
-            <button
-              type="button"
-              onClick={() => setTaskFilter(taskFilter === "30min" ? "all" : "30min")}
-              className={cn(
-                "flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-all cursor-pointer",
-                taskFilter === "30min"
-                  ? "bg-red-500 text-white font-semibold shadow-xs"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              )}
-            >
-              <Clock className="h-3 w-3" />
-              <span>Next 30 Min.</span>
-              {next30MinTasks.length > 0 && (
-                <span
-                  className={cn(
-                    "flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-1 text-[9px] font-bold",
-                    taskFilter === "30min"
-                      ? "bg-white text-red-600"
-                      : "bg-red-500/15 text-red-500"
-                  )}
-                >
-                  {next30MinTasks.length}
-                </span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setTaskFilter(taskFilter === "3hours" ? "all" : "3hours")}
-              className={cn(
-                "flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-all cursor-pointer",
-                taskFilter === "3hours"
-                  ? "bg-amber-500 text-white font-semibold shadow-xs"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              )}
-            >
-              <span>Next 3 Hours</span>
-              {next3HoursTasks.length > 0 && (
-                <span
-                  className={cn(
-                    "flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-1 text-[9px] font-bold",
-                    taskFilter === "3hours"
-                      ? "bg-white text-amber-700"
-                      : "bg-amber-500/15 text-amber-600"
-                  )}
-                >
-                  {next3HoursTasks.length}
-                </span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setTaskFilter(taskFilter === "today" ? "all" : "today")}
-              className={cn(
-                "flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-all cursor-pointer",
-                taskFilter === "today"
-                  ? "bg-primary text-primary-foreground font-semibold shadow-xs"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              )}
-            >
-              <span>Today</span>
-              {todayTasks.length > 0 && (
-                <span
-                  className={cn(
-                    "flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-1 text-[9px] font-bold",
-                    taskFilter === "today"
-                      ? "bg-white text-primary"
-                      : "bg-primary/15 text-primary"
-                  )}
-                >
-                  {todayTasks.length}
-                </span>
-              )}
-            </button>
-          </div>
-
-          {/* Clickable reminder pills: clicking redirects directly to that customer's chat */}
-          <div className="hidden md:flex items-center gap-1.5 overflow-hidden text-xs">
-            {activeFilteredTasks.slice(0, 2).map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => handleOpenTaskChat(t)}
-                className="group flex items-center gap-1.5 rounded-full border border-border/80 bg-background/80 hover:bg-primary/10 hover:border-primary/50 px-2.5 py-0.5 transition-all text-[11px] max-w-[260px] truncate shadow-2xs cursor-pointer"
-                title={`Click to open chat for: ${t.title}`}
-              >
-                <Bell className="h-3 w-3 text-primary shrink-0 group-hover:scale-110 transition-transform" />
-                <span className="font-medium text-foreground truncate">{t.title}</span>
-                {t.contact?.phone && (
-                  <span className="text-[10px] text-muted-foreground font-mono shrink-0">
-                    ({t.contact.phone.slice(-4)})
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setCreateReminderOpen(true)}
-            className="h-7 gap-1 text-xs text-primary hover:bg-primary/10"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">New Reminder / Task</span>
-            <span className="sm:hidden">New</span>
-          </Button>
-        </div>
-      </div>
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel: Conversation list.

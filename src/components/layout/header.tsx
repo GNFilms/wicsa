@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ModeToggle } from "@/components/layout/mode-toggle";
+import { InboxHeaderQuickBar } from "@/components/inbox/inbox-header-quick-bar";
 
 const pageTitles: Record<string, string> = {
   "/dashboard": "dashboard",
@@ -73,7 +74,10 @@ export function Header({ onOpenSidebar }: HeaderProps) {
         </h1>
       </div>
 
-      <div className="flex items-center gap-1 sm:gap-2">
+      {/* Redesigned Inbox Quick Bar: R&T, 30, 3H, T, and Reminder Pills in Top Header Row */}
+      {pathname.startsWith("/inbox") && <InboxHeaderQuickBar />}
+
+      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
         <ModeToggle />
 
         <DropdownMenu>
