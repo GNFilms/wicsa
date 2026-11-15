@@ -1426,7 +1426,7 @@ export default function ContactsPage() {
                           </span>
                           <div className="text-left">
                             <p className="text-foreground font-medium">{member.full_name || member.email}</p>
-                            <p className="text-[10px] text-muted-foreground capitalize">{member.account_role}</p>
+                            <p className="text-[10px] text-muted-foreground capitalize">{member.role}</p>
                           </div>
                         </div>
                         {isSel && <CheckCheck className="size-4 text-primary" />}
