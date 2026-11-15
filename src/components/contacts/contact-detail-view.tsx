@@ -39,7 +39,9 @@ import {
   X,
   DollarSign,
   LayoutTemplate,
+  Camera,
 } from 'lucide-react';
+import { AttachPhotoDialog } from './attach-photo-dialog';
 import { useTranslations } from 'next-intl';
 import { contactHandle } from '@/lib/whatsapp/wa-identity';
 import { parseInternationalPhone } from '@/lib/whatsapp/phone-utils';
@@ -64,6 +66,7 @@ export function ContactDetailView({
   const [contact, setContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
+  const [attachPhotoOpen, setAttachPhotoOpen] = useState(false);
 
   // Send template — lets the business initiate (or re-open) a conversation
   // with this contact by sending an approved template. The send route
@@ -404,15 +407,40 @@ export function ContactDetailView({
             {/* Header */}
             <SheetHeader className="p-4 border-b border-border/50">
               <div className="flex items-center gap-3">
-                <Avatar className="size-12 bg-muted border border-border">
-                  <AvatarFallback className="bg-primary/10 text-primary text-sm font-medium">
-                    {getInitials(contact.name)}
-                  </AvatarFallback>
-                </Avatar>
+                <div
+                  className="relative group size-12 shrink-0 rounded-full overflow-hidden border border-border cursor-pointer shadow-sm"
+                  onClick={() => setAttachPhotoOpen(true)}
+                  title="Click to attach or change photo"
+                >
+                  {contact.avatar_url ? (
+                    <img
+                      src={contact.avatar_url}
+                      alt={contact.name || ""}
+                      className="size-full object-cover"
+                    />
+                  ) : (
+                    <div className="size-full flex items-center justify-center bg-primary/10 text-primary text-sm font-semibold">
+                      {getInitials(contact.name)}
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Camera className="size-4" />
+                  </div>
+                </div>
                 <div className="flex-1 min-w-0">
-                  <SheetTitle className="text-popover-foreground truncate">
-                    {contact.name || t('unnamed')}
-                  </SheetTitle>
+                  <div className="flex items-center justify-between gap-2">
+                    <SheetTitle className="text-popover-foreground truncate">
+                      {contact.name || t('unnamed')}
+                    </SheetTitle>
+                    <button
+                      type="button"
+                      onClick={() => setAttachPhotoOpen(true)}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline shrink-0"
+                    >
+                      <Camera className="size-3" />
+                      {contact.avatar_url ? "Change Photo" : "Attach Photo"}
+                    </button>
+                  </div>
                   <SheetDescription className="text-muted-foreground text-xs mt-0.5">
                     {t('contactDetailsDesc')}
                   </SheetDescription>
@@ -765,6 +793,15 @@ export function ContactDetailView({
       open={templatePickerOpen}
       onOpenChange={setTemplatePickerOpen}
       onSelect={handleSendTemplate}
+    />
+    <AttachPhotoDialog
+      open={attachPhotoOpen}
+      onOpenChange={setAttachPhotoOpen}
+      contact={contact}
+      onPhotoUpdated={(updated) => {
+        setContact(updated);
+        onUpdated?.();
+      }}
     />
     </>
   );

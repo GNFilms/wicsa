@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useTotalUnread } from "@/hooks/use-total-unread";
@@ -25,6 +25,8 @@ import {
   Workflow,
   X,
   Zap,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import type { AccountRole } from "@/lib/auth/roles";
 
@@ -121,6 +123,30 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const { platformName, logoUrl } = useBranding();
   const totalUnread = useTotalUnread();
   const unreadNotifications = useUnreadNotifications();
+
+  // Collapsible sidebar state
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("wacrm:ui:sidebar-collapsed");
+      if (stored !== null) setIsCollapsed(stored === "true");
+    } catch {}
+  }, []);
+
+  const toggleCollapsed = () => {
+    setIsCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("wacrm:ui:sidebar-collapsed", String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const effectiveCollapsed = isCollapsed && !isHovered;
+
   // Only surface the account-name strip when it actually carries
   // information. A solo user's personal account is named after them
   // (the 017 signup trigger seeds it from `full_name`), so showing it
@@ -178,33 +204,83 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
       <aside
         className={cn(
           // Mobile: fixed drawer that slides in from the left.
-          "fixed inset-y-0 left-0 z-40 flex h-full w-64 flex-col border-r border-border bg-card",
-          "transition-transform duration-200 ease-out will-change-transform",
+          "fixed inset-y-0 left-0 z-40 flex h-full flex-col border-r border-border bg-card",
+          "transition-all duration-200 ease-in-out will-change-transform",
           open ? "translate-x-0" : "-translate-x-full",
-          // Desktop: static, always visible — reset all the mobile framing.
-          "lg:static lg:z-0 lg:w-60 lg:translate-x-0 lg:transition-none",
+          // Desktop: collapsible width (w-16 when collapsed, w-60 when expanded)
+          effectiveCollapsed ? "lg:w-16" : "lg:w-60",
+          "lg:static lg:z-0 lg:translate-x-0",
         )}
+        onMouseEnter={() => {
+          if (isCollapsed) setIsHovered(true);
+        }}
+        onMouseLeave={() => {
+          if (isCollapsed) setIsHovered(false);
+        }}
         aria-label={t("primaryNav")}
       >
-        {/* Logo row. On mobile we put a close button here; on desktop the
-            close button is hidden since the sidebar is always-visible. */}
-        <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
-          <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0">
-            {logoUrl ? (
-              <img
-                src={logoUrl}
-                alt={platformName || "Platform Logo"}
-                className="h-8 w-8 rounded-lg object-contain bg-background/50 border border-border/50 shrink-0"
-              />
-            ) : (
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shrink-0 shadow-sm">
-                <MessageSquare className="h-4 w-4" />
-              </div>
+        {/* Logo row & collapse toggle */}
+        <div
+          className={cn(
+            "flex h-14 shrink-0 items-center border-b border-border transition-all",
+            effectiveCollapsed ? "justify-center px-2" : "justify-between px-4",
+          )}
+        >
+          {!effectiveCollapsed ? (
+            <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0">
+              {logoUrl ? (
+                <img
+                  src={logoUrl}
+                  alt={platformName || "Platform Logo"}
+                  className="h-8 w-8 rounded-lg object-contain bg-background/50 border border-border/50 shrink-0"
+                />
+              ) : (
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shrink-0 shadow-sm">
+                  <MessageSquare className="h-4 w-4" />
+                </div>
+              )}
+              <span className="text-sm font-semibold text-foreground truncate">
+                {platformName || t("title")}
+              </span>
+            </Link>
+          ) : (
+            <Link
+              href="/dashboard"
+              title={platformName || t("title")}
+              className="flex items-center justify-center"
+            >
+              {logoUrl ? (
+                <img
+                  src={logoUrl}
+                  alt={platformName || "Platform Logo"}
+                  className="h-8 w-8 rounded-lg object-contain bg-background/50 border border-border/50 shrink-0"
+                />
+              ) : (
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shrink-0 shadow-sm">
+                  <MessageSquare className="h-4 w-4" />
+                </div>
+              )}
+            </Link>
+          )}
+
+          {/* Desktop minimize / expand button */}
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label={effectiveCollapsed ? "Expand menu" : "Minimize menu"}
+            title={effectiveCollapsed ? "Click '>' to expand menu" : "Click to minimize menu"}
+            className={cn(
+              "hidden h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors lg:flex",
+              effectiveCollapsed && "mt-1",
             )}
-            <span className="text-sm font-semibold text-foreground truncate">
-              {platformName || t("title")}
-            </span>
-          </Link>
+          >
+            {effectiveCollapsed ? (
+              <ChevronRight className="h-4 w-4 text-primary" />
+            ) : (
+              <ChevronLeft className="h-4 w-4" />
+            )}
+          </button>
+
           <button
             type="button"
             onClick={onClose}
@@ -216,7 +292,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         </div>
 
         {/* Main navigation */}
-        <nav className="flex-1 overflow-y-auto px-3 py-4">
+        <nav className={cn("flex-1 overflow-y-auto py-4", effectiveCollapsed ? "px-2" : "px-3")}>
           <ul className="flex flex-col gap-1">
             {navItems.map((item) => {
               const isActive =
@@ -226,10 +302,6 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               const showUnreadDot =
                 item.href === "/inbox" && totalUnread > 0 && !isActive;
 
-              // Unlike the inbox dot, the notifications count stays visible
-              // even while the page is active — it reflects unread state
-              // (cleared by marking notifications read), not "currently
-              // viewing this section".
               const showNotificationBadge =
                 item.href === "/notifications" && unreadNotifications > 0;
 
@@ -237,40 +309,52 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 <li key={item.href}>
                   <Link
                     href={item.href}
+                    title={t(item.labelKey as string)}
                     className={cn(
-                      // Taller on mobile so fingers can hit the row reliably (≥44px).
-                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
+                      "flex items-center rounded-lg transition-colors",
+                      effectiveCollapsed
+                        ? "justify-center px-2 py-2.5 lg:py-2"
+                        : "gap-3 px-3 py-2.5 lg:py-2 text-sm font-medium",
                       isActive
                         ? "bg-primary/10 text-primary"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground",
                     )}
                   >
-                    <item.icon className="h-4 w-4" />
-                    <span className="flex-1">{t(item.labelKey as string)}</span>
-                    {item.beta && (
-                      <span
-                        aria-label={t("beta")}
-                        className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300"
-                      >
-                        {t("beta")}
-                      </span>
-                    )}
-                    {showUnreadDot && (
-                      <span
-                        aria-label={t("unreadConversations", { count: totalUnread })}
-                        className="relative flex h-2 w-2"
-                      >
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
-                        <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
-                      </span>
-                    )}
-                    {showNotificationBadge && (
-                      <span
-                        aria-label={t("unreadNotifications", { count: unreadNotifications })}
-                        className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground"
-                      >
-                        {unreadNotifications > 9 ? "9+" : unreadNotifications}
-                      </span>
+                    <div className="relative flex items-center justify-center">
+                      <item.icon className="h-4 w-4 shrink-0" />
+                      {effectiveCollapsed && (showUnreadDot || showNotificationBadge) && (
+                        <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-primary" />
+                      )}
+                    </div>
+                    {!effectiveCollapsed && (
+                      <>
+                        <span className="flex-1 truncate">{t(item.labelKey as string)}</span>
+                        {item.beta && (
+                          <span
+                            aria-label={t("beta")}
+                            className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300"
+                          >
+                            {t("beta")}
+                          </span>
+                        )}
+                        {showUnreadDot && (
+                          <span
+                            aria-label={t("unreadConversations", { count: totalUnread })}
+                            className="relative flex h-2 w-2"
+                          >
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                            <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+                          </span>
+                        )}
+                        {showNotificationBadge && (
+                          <span
+                            aria-label={t("unreadNotifications", { count: unreadNotifications })}
+                            className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground"
+                          >
+                            {unreadNotifications > 9 ? "9+" : unreadNotifications}
+                          </span>
+                        )}
+                      </>
                     )}
                   </Link>
                 </li>
@@ -287,15 +371,21 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 <li key={item.href}>
                   <Link
                     href={item.href}
+                    title={t(item.labelKey as string)}
                     className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
+                      "flex items-center rounded-lg transition-colors",
+                      effectiveCollapsed
+                        ? "justify-center px-2 py-2.5 lg:py-2"
+                        : "gap-3 px-3 py-2.5 lg:py-2 text-sm font-medium",
                       isActive
                         ? "bg-primary/10 text-primary"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground",
                     )}
                   >
-                    <item.icon className="h-4 w-4" />
-                    {t(item.labelKey as string)}
+                    <item.icon className="h-4 w-4 shrink-0" />
+                    {!effectiveCollapsed && (
+                      <span className="truncate">{t(item.labelKey as string)}</span>
+                    )}
                   </Link>
                 </li>
               );
@@ -304,27 +394,14 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         </nav>
 
         {/* User section */}
-        <div className="shrink-0 border-t border-border p-3">
-          {/* Account name display — surfaced only when the account
-              name differs from the user's own name (see
-              `showAccountStrip`). For a default solo account the two
-              match, so we hide it to avoid duplicating the user name
-              below; for renamed or shared accounts it tells the user
-              which account they're acting in. */}
-          {showAccountStrip && account?.name ? (
+        <div className={cn("shrink-0 border-t border-border", effectiveCollapsed ? "p-2" : "p-3")}>
+          {!effectiveCollapsed && showAccountStrip && account?.name ? (
             <div className="mb-2 flex items-center gap-2 px-3 text-xs text-muted-foreground">
               <UsersRound className="size-3.5 shrink-0" />
-              {/* `title=` exposes the full name on hover when it
-                  gets truncated (long account names + narrow
-                  sidebars). Cheap a11y win. */}
               <span className="truncate" title={account.name}>
                 {account.name}
               </span>
               {accountRole ? (
-                // Always render the chip — owners used to be
-                // invisible here, which made them indistinguishable
-                // from admins at a glance. Now everyone sees their
-                // role (with a colour cue) regardless of tier.
                 (() => {
                   const meta = ROLE_CHIP[accountRole];
                   const Icon = meta.icon;
@@ -341,7 +418,12 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             </div>
           ) : null}
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/60 focus:bg-muted/60 focus:outline-none data-popup-open:bg-muted/60">
+            <DropdownMenuTrigger
+              className={cn(
+                "flex w-full items-center rounded-lg text-left transition-colors hover:bg-muted/60 focus:bg-muted/60 focus:outline-none data-popup-open:bg-muted/60",
+                effectiveCollapsed ? "justify-center p-1.5" : "gap-3 px-3 py-2",
+              )}
+            >
               <Avatar className="size-8 shrink-0">
                 {profile?.avatar_url ? (
                   <AvatarImage
@@ -355,14 +437,16 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                     "U"}
                 </AvatarFallback>
               </Avatar>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">
-                  {profile?.full_name ?? t("defaultUser")}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {profile?.email ?? ""}
-                </p>
-              </div>
+              {!effectiveCollapsed && (
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">
+                    {profile?.full_name ?? t("defaultUser")}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {profile?.email ?? ""}
+                  </p>
+                </div>
+              )}
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"

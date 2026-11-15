@@ -8,6 +8,7 @@ import {
   Plus,
   Trash2,
   Pencil,
+  Copy,
   Loader2,
   MessageSquare,
   PlayCircle,
@@ -91,6 +92,7 @@ export default function FlowsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
 
   useEffect(() => {
@@ -191,6 +193,32 @@ export default function FlowsPage() {
     }
   }
 
+  async function handleDuplicate(flow: FlowRow) {
+    setDuplicatingId(flow.id);
+    try {
+      const res = await fetch("/api/flows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          duplicate_flow_id: flow.id,
+          name: `${flow.name} (Copy)`,
+        }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error ?? `Duplicate failed: ${res.status}`);
+      }
+      const json = (await res.json()) as { flow: FlowRow };
+      toast.success(`Flow duplicated: ${json.flow.name}`);
+      setFlows((prev) => [json.flow, ...prev]);
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Failed to duplicate flow");
+    } finally {
+      setDuplicatingId(null);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -236,6 +264,8 @@ export default function FlowsPage() {
               key={flow.id}
               flow={flow}
               onEdit={() => router.push(`/flows/${flow.id}`)}
+              onDuplicate={() => handleDuplicate(flow)}
+              duplicating={duplicatingId === flow.id}
               onDelete={() => handleDelete(flow)}
               t={t}
             />
@@ -359,11 +389,15 @@ function EmptyState({
 function FlowCard({
   flow,
   onEdit,
+  onDuplicate,
+  duplicating,
   onDelete,
   t,
 }: {
   flow: FlowRow;
   onEdit: () => void;
+  onDuplicate: () => void;
+  duplicating: boolean;
   onDelete: () => void;
   t: ReturnType<typeof useTranslations>;
 }) {
@@ -407,6 +441,14 @@ function FlowCard({
       </div>
 
       <div className="mt-4 flex items-center justify-end gap-2 border-t border-border pt-3">
+        <Button variant="ghost" size="sm" onClick={onDuplicate} disabled={duplicating} title="Duplicate this flow">
+          {duplicating ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Copy className="h-3.5 w-3.5" />
+          )}
+          Duplicate
+        </Button>
         <Button variant="ghost" size="sm" onClick={onEdit}>
           <Pencil className="h-3.5 w-3.5" />
           {t("edit")}

@@ -14,6 +14,7 @@ import {
   Zap,
   RefreshCw,
   HardDrive,
+  SlidersHorizontal,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -30,6 +31,7 @@ export const SETTINGS_SECTIONS = [
   'profile',
   'security',
   'appearance',
+  'ui',
   'branding',
   'whatsapp',
   'templates',
@@ -60,6 +62,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   profile: { id: 'profile', label: 'Your profile', icon: User, group: 'account' },
   security: { id: 'security', label: 'Login & security', icon: Shield, group: 'account' },
   appearance: { id: 'appearance', label: 'Appearance', icon: Palette, group: 'account' },
+  ui: { id: 'ui', label: 'UI Settings', icon: SlidersHorizontal, group: 'workspace' },
   branding: { id: 'branding', label: 'Customize Design', icon: Sparkles, group: 'workspace' },
   whatsapp: { id: 'whatsapp', label: 'WhatsApp', icon: PlugZap, group: 'workspace' },
   templates: { id: 'templates', label: 'Templates', icon: FileText, group: 'workspace' },

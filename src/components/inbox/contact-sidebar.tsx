@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { addContactTag, deleteContactTag } from "@/lib/contacts/tag-api";
 import { cn } from "@/lib/utils";
-import type { Contact, Deal, ContactNote, Tag, CustomField, ContactCustomValue } from "@/types";
+import type { Contact, Deal, ContactNote, Tag, CustomField, ContactCustomValue, Task, TaskPriority } from "@/types";
 import {
   Phone,
   Mail,
@@ -22,7 +22,20 @@ import {
   Save,
   GitBranch,
   TrendingUp,
+  Camera,
+  Calendar as CalendarIcon,
+  Bell,
+  PhoneCall,
+  CreditCard,
+  PackageCheck,
+  Trash2,
+  CheckCircle2,
+  Circle,
+  Clock,
 } from "lucide-react";
+import { AttachPhotoDialog } from "@/components/contacts/attach-photo-dialog";
+import { CreateReminderDialog } from "@/components/reminders/create-reminder-dialog";
+import { ReminderCalendarModal } from "@/components/reminders/reminder-calendar-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -103,6 +116,54 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
   const [newTagName, setNewTagName] = useState("");
   const [newTagColor, setNewTagColor] = useState(PRESET_TAG_COLORS[0]);
   const [creatingTag, setCreatingTag] = useState(false);
+
+  // Attach photo state
+  const [attachPhotoOpen, setAttachPhotoOpen] = useState(false);
+
+  // Reminders state
+  const [reminders, setReminders] = useState<Task[]>([]);
+  const [reminderDialogOpen, setReminderDialogOpen] = useState(false);
+  const [calendarModalOpen, setCalendarModalOpen] = useState(false);
+
+  const fetchReminders = useCallback(async () => {
+    if (!contact?.id) return;
+    const supabase = createClient();
+    const res = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("contact_id", contact.id)
+      .order("created_at", { ascending: false });
+    if (res.data) setReminders(res.data);
+  }, [contact?.id]);
+
+  const handleToggleReminderStatus = async (task: Task) => {
+    const newStatus = task.status === "completed" ? "assigned" : "completed";
+    setReminders((prev) =>
+      prev.map((t) => (t.id === task.id ? { ...t, status: newStatus } : t))
+    );
+    try {
+      const res = await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!res.ok) throw new Error("Failed to update status");
+      toast.success(newStatus === "completed" ? "Reminder marked completed" : "Reminder reactivated");
+    } catch {
+      fetchReminders();
+    }
+  };
+
+  const handleDeleteReminder = async (taskId: string) => {
+    setReminders((prev) => prev.filter((t) => t.id !== taskId));
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete reminder");
+      toast.success("Reminder deleted");
+    } catch {
+      fetchReminders();
+    }
+  };
 
   // Sync edit form with current contact
   useEffect(() => {
@@ -199,7 +260,8 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
 
   useEffect(() => {
     fetchContactData();
-  }, [fetchContactData]);
+    fetchReminders();
+  }, [fetchContactData, fetchReminders]);
 
   const handleCopyPhone = useCallback(async () => {
     const handle = contact ? contactHandle(contact) : "";
@@ -614,18 +676,35 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
             /* View Mode */
             <div>
               <div className="flex flex-col items-center text-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary text-xl font-bold ring-2 ring-primary/20">
-                  {contact.avatar_url ? (
-                    <img
-                      src={contact.avatar_url}
-                      alt={displayName}
-                      className="h-16 w-16 rounded-full object-cover"
-                    />
-                  ) : (
-                    initials
-                  )}
+                <div
+                  className="relative group cursor-pointer"
+                  onClick={() => setAttachPhotoOpen(true)}
+                  title="Click to attach or change photo"
+                >
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary text-xl font-bold ring-2 ring-primary/20 overflow-hidden shadow-sm">
+                    {contact.avatar_url ? (
+                      <img
+                        src={contact.avatar_url}
+                        alt={displayName}
+                        className="h-16 w-16 rounded-full object-cover"
+                      />
+                    ) : (
+                      initials
+                    )}
+                  </div>
+                  <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Camera className="h-5 w-5" />
+                  </div>
                 </div>
-                <h3 className="mt-3 text-base font-semibold text-foreground">
+                <button
+                  type="button"
+                  onClick={() => setAttachPhotoOpen(true)}
+                  className="mt-1.5 flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                >
+                  <Camera className="h-3 w-3" />
+                  {contact.avatar_url ? "Change Photo" : "Attach Photo"}
+                </button>
+                <h3 className="mt-1 text-base font-semibold text-foreground">
                   {displayName}
                 </h3>
                 {contact.company ? (
@@ -939,6 +1018,129 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
             </div>
           </div>
 
+          {/* Reminders & Follow-ups Section */}
+          <div className="border-t border-border pt-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <Bell className="h-3.5 w-3.5 text-primary" />
+                <span>Reminders</span>
+                <span className="text-[10px] text-muted-foreground">({reminders.length})</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-1.5 text-[11px] text-primary hover:bg-primary/10"
+                  onClick={() => setCalendarModalOpen(true)}
+                  title="Open Calendar"
+                >
+                  <CalendarIcon className="h-3 w-3 mr-1" />
+                  Calendar
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-6 px-2 text-xs bg-primary hover:bg-primary/90 text-primary-foreground gap-1"
+                  onClick={() => setReminderDialogOpen(true)}
+                >
+                  <Plus className="h-3 w-3" />
+                  Add
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {reminders.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border/80 bg-muted/20 p-3 text-center">
+                  <p className="text-xs text-muted-foreground italic">No reminders scheduled</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-2 h-7 text-xs border-border/70 hover:bg-muted"
+                    onClick={() => setReminderDialogOpen(true)}
+                  >
+                    <Plus className="h-3 w-3 mr-1" />
+                    Set Call or Payment Reminder
+                  </Button>
+                </div>
+              ) : (
+                reminders.map((r) => {
+                  const isDone = r.status === "completed";
+                  const isCall = r.category?.toLowerCase().includes("call");
+                  const isPayment = r.category?.toLowerCase().includes("payment");
+                  const isOrder = r.category?.toLowerCase().includes("order");
+                  const CatIcon = isCall ? PhoneCall : isPayment ? CreditCard : isOrder ? PackageCheck : Bell;
+                  const isOverdue = r.due_date && new Date(r.due_date) < new Date() && !isDone;
+
+                  return (
+                    <div
+                      key={r.id}
+                      className={`group rounded-lg border p-2.5 transition-all text-xs ${
+                        isDone
+                          ? "border-border/40 bg-muted/20 opacity-60"
+                          : isOverdue
+                          ? "border-red-500/30 bg-red-500/5 hover:border-red-500/50"
+                          : "border-border/70 bg-card hover:border-primary/40 shadow-xs"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-2 min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleReminderStatus(r)}
+                            className="mt-0.5 text-muted-foreground hover:text-primary transition-colors shrink-0 cursor-pointer"
+                            title={isDone ? "Mark as pending" : "Mark as completed"}
+                          >
+                            {isDone ? (
+                              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                            ) : (
+                              <Circle className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </button>
+                          <div className="min-w-0">
+                            <p className={`font-medium truncate ${isDone ? "line-through text-muted-foreground" : "text-foreground"}`}>
+                              {r.title}
+                            </p>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                              <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 bg-muted font-medium text-foreground">
+                                <CatIcon className="h-2.5 w-2.5" />
+                                {r.category || "Reminder"}
+                              </span>
+                              {r.due_date && (
+                                <span className={`inline-flex items-center gap-1 ${isOverdue ? "text-red-400 font-semibold" : ""}`}>
+                                  <Clock className="h-2.5 w-2.5" />
+                                  {format(new Date(r.due_date), "MMM d, HH:mm")}
+                                  {isOverdue && " (Overdue)"}
+                                </span>
+                              )}
+                              <span className={`rounded px-1 text-[9px] uppercase font-bold ${
+                                r.priority === "high" ? "text-red-400 bg-red-500/10" : r.priority === "medium" ? "text-amber-400 bg-amber-500/10" : "text-blue-400 bg-blue-500/10"
+                              }`}>
+                                {r.priority}
+                              </span>
+                            </div>
+                            {r.description && (
+                              <p className="mt-1 text-[11px] text-muted-foreground line-clamp-2">
+                                {r.description}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteReminder(r.id)}
+                          className="text-muted-foreground/40 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 cursor-pointer"
+                          title="Delete reminder"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
           {/* Notes Section */}
           <div className="border-t border-border pt-4">
             <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
@@ -982,6 +1184,26 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
           </div>
         </div>
       </ScrollArea>
+
+      <AttachPhotoDialog
+        open={attachPhotoOpen}
+        onOpenChange={setAttachPhotoOpen}
+        contact={contact}
+        onPhotoUpdated={(updated) => onContactUpdated?.(updated)}
+      />
+
+      <CreateReminderDialog
+        open={reminderDialogOpen}
+        onOpenChange={setReminderDialogOpen}
+        contact={contact}
+        onSaved={() => fetchReminders()}
+      />
+
+      <ReminderCalendarModal
+        open={calendarModalOpen}
+        onOpenChange={setCalendarModalOpen}
+        contact={contact}
+      />
     </div>
   );
 }

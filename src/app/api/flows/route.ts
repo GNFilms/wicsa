@@ -90,6 +90,10 @@ export async function POST(request: Request) {
          * provided.
          */
         template_slug?: string
+        /**
+         * If set, duplicate an existing flow and its nodes into a new draft.
+         */
+        duplicate_flow_id?: string
       }
     | null
   if (!body) {
@@ -97,6 +101,72 @@ export async function POST(request: Request) {
   }
 
   const admin = supabaseAdmin()
+
+  // -------- Duplicate flow path --------
+  if (body.duplicate_flow_id) {
+    const { data: sourceFlow, error: srcErr } = await admin
+      .from('flows')
+      .select('*')
+      .eq('id', body.duplicate_flow_id)
+      .eq('account_id', accountId)
+      .single()
+
+    if (srcErr || !sourceFlow) {
+      return NextResponse.json(
+        { error: 'Source flow not found or not accessible' },
+        { status: 404 },
+      )
+    }
+
+    const { data: sourceNodes } = await admin
+      .from('flow_nodes')
+      .select('*')
+      .eq('flow_id', sourceFlow.id)
+
+    const newName = body.name?.trim() || `${sourceFlow.name} (Copy)`
+
+    const { data: flow, error: flowErr } = await admin
+      .from('flows')
+      .insert({
+        user_id: userId,
+        account_id: accountId,
+        name: newName,
+        description: sourceFlow.description,
+        status: 'draft',
+        trigger_type: sourceFlow.trigger_type,
+        trigger_config: sourceFlow.trigger_config,
+        entry_node_id: sourceFlow.entry_node_id,
+      })
+      .select()
+      .single()
+
+    if (flowErr || !flow) {
+      return NextResponse.json(
+        { error: flowErr?.message ?? 'flow duplication failed' },
+        { status: 500 },
+      )
+    }
+
+    if (sourceNodes && sourceNodes.length > 0) {
+      const { error: nodesErr } = await admin.from('flow_nodes').insert(
+        sourceNodes.map((n: { node_key: string; node_type: string; config: unknown }) => ({
+          flow_id: flow.id,
+          node_key: n.node_key,
+          node_type: n.node_type,
+          config: n.config,
+        })),
+      )
+      if (nodesErr) {
+        await admin.from('flows').delete().eq('id', flow.id)
+        return NextResponse.json(
+          { error: nodesErr.message },
+          { status: 500 },
+        )
+      }
+    }
+
+    return NextResponse.json({ flow }, { status: 201 })
+  }
 
   // -------- Template clone path --------
   if (body.template_slug) {

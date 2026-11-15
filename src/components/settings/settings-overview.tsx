@@ -218,6 +218,11 @@ export function SettingsOverview({
       subtitle: t('appearance', { mode: cap(mode), theme: themeName }),
     },
     {
+      section: 'ui',
+      loading: false,
+      subtitle: 'Customize sidebar, inbox top bar & display options',
+    },
+    {
       section: 'storage',
       loading: false,
       subtitle: 'Manage media files & free up egress bandwidth',

@@ -49,11 +49,13 @@ import {
   SlidersHorizontal,
   Filter,
   X,
+  Camera,
 } from 'lucide-react';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
 import { ImportModal } from '@/components/contacts/import-modal';
 import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager';
+import { AttachPhotoDialog } from '@/components/contacts/attach-photo-dialog';
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
@@ -89,6 +91,14 @@ export default function ContactsPage() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Contact | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [attachTarget, setAttachTarget] = useState<Contact | null>(null);
+
+  const handlePhotoUpdated = (updated: Contact) => {
+    setContacts((prev) =>
+      prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
+    );
+  };
 
   // Bulk selection (page-scoped — only the loaded rows are selectable)
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -601,7 +611,35 @@ export default function ContactsPage() {
                     />
                   </TableCell>
                   <TableCell className="text-foreground font-medium">
-                    {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className="relative group size-8 shrink-0 rounded-full bg-muted flex items-center justify-center overflow-hidden ring-1 ring-border cursor-pointer shadow-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAttachTarget(contact);
+                          setAttachOpen(true);
+                        }}
+                        title="Click to attach or change photo"
+                      >
+                        {contact.avatar_url ? (
+                          <img
+                            src={contact.avatar_url}
+                            alt={contact.name || ""}
+                            className="size-full object-cover"
+                          />
+                        ) : (
+                          <span className="text-xs font-semibold text-primary">
+                            {(contact.name || contact.phone || "?").charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                        <div className="absolute inset-0 bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Camera className="size-3.5" />
+                        </div>
+                      </div>
+                      <span className="truncate">
+                        {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
+                      </span>
+                    </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground font-mono text-xs">
                     {contact.phone}
@@ -662,6 +700,17 @@ export default function ContactsPage() {
                         align="end"
                         className="bg-popover border-border"
                       >
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAttachTarget(contact);
+                            setAttachOpen(true);
+                          }}
+                          className="text-popover-foreground focus:bg-muted focus:text-foreground"
+                        >
+                          <Camera className="size-4" />
+                          Attach Photo
+                        </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={(e) => {
                             e.stopPropagation();
@@ -827,6 +876,13 @@ export default function ContactsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* Attach Photo Modal */}
+      <AttachPhotoDialog
+        open={attachOpen}
+        onOpenChange={setAttachOpen}
+        contact={attachTarget}
+        onPhotoUpdated={handlePhotoUpdated}
+      />
     </div>
   );
 }

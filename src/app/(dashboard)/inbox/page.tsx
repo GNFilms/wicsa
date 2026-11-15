@@ -8,13 +8,16 @@ import {
   CONVERSATION_SELECT,
   normalizeConversation,
 } from "@/lib/inbox/conversations";
-import type { Conversation, Message, Contact, ConversationStatus } from "@/types";
+import type { Conversation, Message, Contact, ConversationStatus, Task } from "@/types";
 import { useRealtime } from "@/hooks/use-realtime";
 import { ConversationList } from "@/components/inbox/conversation-list";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { ContactSidebar } from "@/components/inbox/contact-sidebar";
+import { Button } from "@/components/ui/button";
+import { CreateReminderDialog } from "@/components/reminders/create-reminder-dialog";
+import { ReminderCalendarModal } from "@/components/reminders/reminder-calendar-modal";
 import { toast } from "sonner";
-import { WifiOff } from "lucide-react";
+import { WifiOff, Calendar as CalendarIcon, Clock, Plus, Bell } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Remembers the agent's show/hide choice for the desktop contact panel
@@ -89,6 +92,27 @@ function InboxPageInner() {
       return next;
     });
   }, []);
+
+  // Top Bar Reminders & Tasks state
+  const [calendarModalOpen, setCalendarModalOpen] = useState(false);
+  const [createReminderOpen, setCreateReminderOpen] = useState(false);
+  const [upcomingTasks, setUpcomingTasks] = useState<Task[]>([]);
+
+  const fetchUpcomingTasks = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tasks?limit=20", { cache: "no-store" });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.tasks) {
+          setUpcomingTasks(json.tasks.filter((t: Task) => t.status !== "completed"));
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchUpcomingTasks();
+  }, [fetchUpcomingTasks, resyncToken]);
 
   // Fire the deep-link auto-select exactly once per URL — subsequent
   // list refreshes (realtime, manual refetch) must not snap the user
@@ -589,6 +613,47 @@ function InboxPageInner() {
         </div>
       )}
 
+      {/* Top Quick Bar: Reminders, Tasks & Important Options */}
+      <div className="flex h-10 shrink-0 items-center justify-between border-b border-border bg-card/60 px-4 text-xs backdrop-blur-xs">
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setCalendarModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors shadow-xs"
+          >
+            <CalendarIcon className="h-3.5 w-3.5" />
+            <span>Reminders & Tasks</span>
+            {upcomingTasks.length > 0 && (
+              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] text-primary-foreground font-bold">
+                {upcomingTasks.length}
+              </span>
+            )}
+          </button>
+
+          {upcomingTasks.length > 0 && (
+            <div className="hidden items-center gap-1.5 text-muted-foreground md:flex">
+              <Clock className="h-3 w-3 text-amber-500" />
+              <span>Next up:</span>
+              <span className="font-medium text-foreground truncate max-w-[260px] xl:max-w-[400px]">
+                {upcomingTasks[0].title}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setCreateReminderOpen(true)}
+            className="h-7 gap-1 text-xs text-primary hover:bg-primary/10"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New Reminder / Task
+          </Button>
+        </div>
+      </div>
+
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel: Conversation list.
             Hidden on mobile when a conversation is selected so the
@@ -651,6 +716,20 @@ function InboxPageInner() {
           </div>
         )}
       </div>
+
+      <CreateReminderDialog
+        open={createReminderOpen}
+        onOpenChange={setCreateReminderOpen}
+        contact={activeContact}
+        conversationId={activeConversation?.id}
+        onSaved={() => fetchUpcomingTasks()}
+      />
+
+      <ReminderCalendarModal
+        open={calendarModalOpen}
+        onOpenChange={setCalendarModalOpen}
+        contact={activeContact}
+      />
     </div>
   );
 }

@@ -22,11 +22,14 @@
  * /flows/[id]/runs) — those don't belong in the hook.
  */
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { toast } from "sonner";
 import {
   ArrowLeft,
   CircleDot,
+  Copy,
   History,
   Loader2,
   PauseCircle,
@@ -58,6 +61,34 @@ export function EditorHeader() {
     setStatus,
     deleteFlow,
   } = useFlowEditor();
+
+  const [duplicating, setDuplicating] = useState(false);
+
+  async function handleDuplicate() {
+    setDuplicating(true);
+    try {
+      const res = await fetch("/api/flows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          duplicate_flow_id: flow.id,
+          name: `${state.name || flow.name} (Copy)`,
+        }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error ?? "Failed to duplicate flow");
+      }
+      const json = (await res.json()) as { flow: { id: string; name: string } };
+      toast.success(`Flow duplicated: ${json.flow.name}`);
+      router.push(`/flows/${json.flow.id}`);
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Failed to duplicate flow");
+    } finally {
+      setDuplicating(false);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-1.5 px-6 pt-5">
@@ -95,8 +126,22 @@ export function EditorHeader() {
           </span>
         )}
 
-        {/* ---- right: runs · delete · activate · save ---- */}
+        {/* ---- right: runs · duplicate · delete · activate · save ---- */}
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleDuplicate}
+            disabled={duplicating}
+            title="Duplicate this flow"
+          >
+            {duplicating ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+            Duplicate
+          </Button>
           <Button
             variant="ghost"
             size="sm"

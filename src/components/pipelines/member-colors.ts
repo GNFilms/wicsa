@@ -102,3 +102,4 @@ export function getMemberColor(key?: string | null): MemberColor {
   const index = Math.abs(hash) % MEMBER_COLORS.length;
   return MEMBER_COLORS[index];
 }
+
