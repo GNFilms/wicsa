@@ -32,8 +32,10 @@ import {
   CheckCircle2,
   Circle,
   Clock,
+  MapPin,
 } from "lucide-react";
 import { AttachPhotoDialog } from "@/components/contacts/attach-photo-dialog";
+import { ContactAttachments } from "@/components/contacts/contact-attachments";
 import { CreateReminderDialog } from "@/components/reminders/create-reminder-dialog";
 import { ReminderCalendarModal } from "@/components/reminders/reminder-calendar-modal";
 import { Button } from "@/components/ui/button";
@@ -94,6 +96,7 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
   const [editPhone, setEditPhone] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editCompany, setEditCompany] = useState("");
+  const [editAddress, setEditAddress] = useState("");
 
   // Custom fields
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
@@ -172,9 +175,10 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
       setEditPhone(contact.phone ?? "");
       setEditEmail(contact.email ?? "");
       setEditCompany(contact.company ?? "");
+      setEditAddress(contact.address ?? "");
       setIsEditing(false);
     }
-  }, [contact?.id, contact?.name, contact?.phone, contact?.email, contact?.company]);
+  }, [contact?.id, contact?.name, contact?.phone, contact?.email, contact?.company, contact?.address]);
 
   const fetchContactData = useCallback(async () => {
     if (!contact) return;
@@ -287,6 +291,7 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
         phone: editPhone.trim(),
         email: editEmail.trim() || null,
         company: editCompany.trim() || null,
+        address: editAddress.trim() || null,
         updated_at: new Date().toISOString(),
       };
 
@@ -624,6 +629,16 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
                 />
               </div>
 
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">Address</Label>
+                <Input
+                  value={editAddress}
+                  onChange={(e) => setEditAddress(e.target.value)}
+                  placeholder="Office/Shop address"
+                  className="h-8 text-xs bg-background"
+                />
+              </div>
+
               {/* Dynamic Custom Fields in Edit Mode */}
               {customFields.length > 0 && (
                 <div className="pt-2 border-t border-border space-y-2">
@@ -714,6 +729,12 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
                   </p>
                 ) : (
                   <p className="text-[11px] text-muted-foreground italic mt-0.5">No company assigned</p>
+                )}
+                {contact.address && (
+                  <p className="flex items-start justify-center gap-1 text-xs text-muted-foreground mt-1 max-w-xs px-2 text-center">
+                    <MapPin className="h-3 w-3 mt-0.5 shrink-0 text-primary" />
+                    <span className="line-clamp-2">{contact.address}</span>
+                  </p>
                 )}
               </div>
 
@@ -1017,6 +1038,9 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
               )}
             </div>
           </div>
+
+          {/* Client Attachments & Media (Pamphlet, Poster, Banner, Visiting Card) */}
+          <ContactAttachments contact={contact} />
 
           {/* Reminders & Follow-ups Section */}
           <div className="border-t border-border pt-4">

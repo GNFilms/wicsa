@@ -204,11 +204,25 @@ export interface Contact {
   email?: string;
   company?: string;
   avatar_url?: string;
+  address?: string | null;
   created_at: string;
   updated_at: string;
   /** Hydrated by queries that embed `contact_tags(tags(*))` (e.g. the
    *  Inbox conversation list, for tag filtering). Absent otherwise. */
   tags?: Tag[];
+}
+
+export interface ContactAttachment {
+  id: string;
+  account_id: string;
+  contact_id: string;
+  file_name: string;
+  file_url: string;
+  file_type: string;
+  file_size?: number;
+  category?: 'visiting_card' | 'pamphlet' | 'poster' | 'banner' | 'general' | string;
+  created_by_user_id?: string | null;
+  created_at: string;
 }
 
 export interface Tag {

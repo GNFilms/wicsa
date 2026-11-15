@@ -16,6 +16,13 @@ export async function GET(request: Request) {
       .order("created_at", { ascending: false })
       .limit(limit);
 
+    // Visibility: Non-admin team members only see tasks created by them or assigned to them.
+    // Admins and owners see all tasks.
+    const isAdmin = ctx.role === "owner" || ctx.role === "admin";
+    if (!isAdmin) {
+      query = query.or(`assigned_to_user_id.eq.${ctx.userId},created_by_user_id.eq.${ctx.userId}`);
+    }
+
     if (status && status !== "all") {
       query = query.eq("status", status);
     }

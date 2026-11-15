@@ -40,8 +40,11 @@ import {
   DollarSign,
   LayoutTemplate,
   Camera,
+  MapPin,
+  Paperclip,
 } from 'lucide-react';
 import { AttachPhotoDialog } from './attach-photo-dialog';
+import { ContactAttachments } from './contact-attachments';
 import { useTranslations } from 'next-intl';
 import { contactHandle } from '@/lib/whatsapp/wa-identity';
 import { parseInternationalPhone } from '@/lib/whatsapp/phone-utils';
@@ -79,6 +82,7 @@ export function ContactDetailView({
   const [editPhone, setEditPhone] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editCompany, setEditCompany] = useState('');
+  const [editAddress, setEditAddress] = useState('');
   const [savingDetails, setSavingDetails] = useState(false);
 
   // Tags tab
@@ -118,6 +122,7 @@ export function ContactDetailView({
       setEditPhone(data.phone);
       setEditEmail(data.email ?? '');
       setEditCompany(data.company ?? '');
+      setEditAddress(data.address ?? '');
     }
     setLoading(false);
   }, [contactId, supabase]);
@@ -226,6 +231,7 @@ export function ContactDetailView({
         phone: editPhone.trim(),
         email: editEmail.trim() || null,
         company: editCompany.trim() || null,
+        address: editAddress.trim() || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', contactId);
@@ -405,42 +411,42 @@ export function ContactDetailView({
         ) : (
           <div className="flex flex-col h-full">
             {/* Header */}
-            <SheetHeader className="p-4 border-b border-border/50">
+            <SheetHeader className="p-4 pr-12 border-b border-border/50">
               <div className="flex items-center gap-3">
-                <div
-                  className="relative group size-12 shrink-0 rounded-full overflow-hidden border border-border cursor-pointer shadow-sm"
-                  onClick={() => setAttachPhotoOpen(true)}
-                  title="Click to attach or change photo"
-                >
-                  {contact.avatar_url ? (
-                    <img
-                      src={contact.avatar_url}
-                      alt={contact.name || ""}
-                      className="size-full object-cover"
-                    />
-                  ) : (
-                    <div className="size-full flex items-center justify-center bg-primary/10 text-primary text-sm font-semibold">
-                      {getInitials(contact.name)}
+                <div className="flex flex-col items-center shrink-0">
+                  <div
+                    className="relative group size-12 rounded-full overflow-hidden border border-border cursor-pointer shadow-sm"
+                    onClick={() => setAttachPhotoOpen(true)}
+                    title="Click to attach or change photo"
+                  >
+                    {contact.avatar_url ? (
+                      <img
+                        src={contact.avatar_url}
+                        alt={contact.name || ""}
+                        className="size-full object-cover"
+                      />
+                    ) : (
+                      <div className="size-full flex items-center justify-center bg-primary/10 text-primary text-sm font-semibold">
+                        {getInitials(contact.name)}
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Camera className="size-4" />
                     </div>
-                  )}
-                  <div className="absolute inset-0 bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Camera className="size-4" />
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setAttachPhotoOpen(true)}
+                    className="mt-1 inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
+                  >
+                    <Camera className="size-2.5" />
+                    {contact.avatar_url ? "Change" : "Attach"}
+                  </button>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <SheetTitle className="text-popover-foreground truncate">
-                      {contact.name || t('unnamed')}
-                    </SheetTitle>
-                    <button
-                      type="button"
-                      onClick={() => setAttachPhotoOpen(true)}
-                      className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline shrink-0"
-                    >
-                      <Camera className="size-3" />
-                      {contact.avatar_url ? "Change Photo" : "Attach Photo"}
-                    </button>
-                  </div>
+                  <SheetTitle className="text-popover-foreground truncate">
+                    {contact.name || t('unnamed')}
+                  </SheetTitle>
                   <SheetDescription className="text-muted-foreground text-xs mt-0.5">
                     {t('contactDetailsDesc')}
                   </SheetDescription>
@@ -467,6 +473,12 @@ export function ContactDetailView({
                       <span className="flex items-center gap-1">
                         <Building2 className="size-3" />
                         {contact.company}
+                      </span>
+                    )}
+                    {contact.address && (
+                      <span className="flex items-center gap-1">
+                        <MapPin className="size-3 text-primary" />
+                        <span className="truncate max-w-[180px]">{contact.address}</span>
                       </span>
                     )}
                   </div>
@@ -522,6 +534,12 @@ export function ContactDetailView({
                 >
                   {t('tabs.deals')}
                 </TabsTrigger>
+                <TabsTrigger
+                  value="attachments"
+                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
+                >
+                  Attachments
+                </TabsTrigger>
               </TabsList>
 
               {/* Details Tab */}
@@ -558,6 +576,15 @@ export function ContactDetailView({
                     <Input
                       value={editCompany}
                       onChange={(e) => setEditCompany(e.target.value)}
+                      className="bg-muted border-border text-foreground h-8 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-muted-foreground text-xs">Address</Label>
+                    <Input
+                      value={editAddress}
+                      onChange={(e) => setEditAddress(e.target.value)}
+                      placeholder="Office no., Street, City"
                       className="bg-muted border-border text-foreground h-8 text-sm"
                     />
                   </div>
@@ -783,6 +810,11 @@ export function ContactDetailView({
                     ))}
                   </div>
                 )}
+              </TabsContent>
+
+              {/* Attachments & Client Assets Tab */}
+              <TabsContent value="attachments" className="flex-1 overflow-y-auto px-4 py-3">
+                <ContactAttachments contact={contact} />
               </TabsContent>
             </Tabs>
           </div>

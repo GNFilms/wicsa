@@ -147,6 +147,29 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
 
   const effectiveCollapsed = isCollapsed && !isHovered;
 
+  // Management controls filtering: Hide broadcasts, automations, flows, AI agents, and settings from team members
+  const isAdmin = accountRole === "owner" || accountRole === "admin";
+  const adminOnlyHrefs = new Set([
+    "/broadcasts",
+    "/automations",
+    "/flows",
+    "/agents",
+  ]);
+
+  const visibleNavItems = navItems.filter((item) => {
+    if (adminOnlyHrefs.has(item.href)) {
+      return isAdmin;
+    }
+    return true;
+  });
+
+  const visibleBottomNavItems = bottomNavItems.filter((item) => {
+    if (item.href === "/settings") {
+      return isAdmin;
+    }
+    return true;
+  });
+
   // Only surface the account-name strip when it actually carries
   // information. A solo user's personal account is named after them
   // (the 017 signup trigger seeds it from `full_name`), so showing it
@@ -294,7 +317,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         {/* Main navigation */}
         <nav className={cn("flex-1 overflow-y-auto py-4", effectiveCollapsed ? "px-2" : "px-3")}>
           <ul className="flex flex-col gap-1">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const isActive =
                 pathname === item.href ||
                 (item.href !== "/dashboard" && pathname.startsWith(item.href));
@@ -362,35 +385,39 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             })}
           </ul>
 
-          <div className="my-4 border-t border-border" />
+          {visibleBottomNavItems.length > 0 && (
+            <>
+              <div className="my-4 border-t border-border" />
 
-          <ul className="flex flex-col gap-1">
-            {bottomNavItems.map((item) => {
-              const isActive = pathname.startsWith(item.href);
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    title={t(item.labelKey as string)}
-                    className={cn(
-                      "flex items-center rounded-lg transition-colors",
-                      effectiveCollapsed
-                        ? "justify-center px-2 py-2.5 lg:py-2"
-                        : "gap-3 px-3 py-2.5 lg:py-2 text-sm font-medium",
-                      isActive
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                    )}
-                  >
-                    <item.icon className="h-4 w-4 shrink-0" />
-                    {!effectiveCollapsed && (
-                      <span className="truncate">{t(item.labelKey as string)}</span>
-                    )}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+              <ul className="flex flex-col gap-1">
+                {visibleBottomNavItems.map((item) => {
+                  const isActive = pathname.startsWith(item.href);
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        title={t(item.labelKey as string)}
+                        className={cn(
+                          "flex items-center rounded-lg transition-colors",
+                          effectiveCollapsed
+                            ? "justify-center px-2 py-2.5 lg:py-2"
+                            : "gap-3 px-3 py-2.5 lg:py-2 text-sm font-medium",
+                          isActive
+                            ? "bg-primary/10 text-primary"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                        )}
+                      >
+                        <item.icon className="h-4 w-4 shrink-0" />
+                        {!effectiveCollapsed && (
+                          <span className="truncate">{t(item.labelKey as string)}</span>
+                        )}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
         </nav>
 
         {/* User section */}

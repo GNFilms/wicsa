@@ -50,6 +50,7 @@ import {
   Filter,
   X,
   Camera,
+  GitBranch,
 } from 'lucide-react';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
@@ -57,8 +58,10 @@ import { ImportModal } from '@/components/contacts/import-modal';
 import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager';
 import { AttachPhotoDialog } from '@/components/contacts/attach-photo-dialog';
 import { useCan } from '@/hooks/use-can';
+import { useAuth } from '@/hooks/use-auth';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
+import { Label } from '@/components/ui/label';
 
 const PAGE_SIZE = 25;
 
@@ -69,6 +72,8 @@ interface ContactWithTags extends Contact {
 export default function ContactsPage() {
   const t = useTranslations('Contacts.page');
   const supabase = createClient();
+  const { accountId, accountRole, user, profile } = useAuth();
+  const isAdmin = accountRole === 'owner' || accountRole === 'admin';
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
 
@@ -93,6 +98,99 @@ export default function ContactsPage() {
   const [deleting, setDeleting] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [attachTarget, setAttachTarget] = useState<Contact | null>(null);
+
+  // Add to Pipeline states
+  const [addToPipelineOpen, setAddToPipelineOpen] = useState(false);
+  const [pipelineTargetContacts, setPipelineTargetContacts] = useState<Contact[]>([]);
+  const [pipelines, setPipelines] = useState<{ id: string; name: string }[]>([]);
+  const [stages, setStages] = useState<Record<string, { id: string; name: string; color: string; default_assignee_id?: string | null }[]>>({});
+  const [selectedPipelineId, setSelectedPipelineId] = useState('');
+  const [selectedStageId, setSelectedStageId] = useState('');
+  const [dealTitle, setDealTitle] = useState('');
+  const [dealValue, setDealValue] = useState('0');
+  const [addingToPipeline, setAddingToPipeline] = useState(false);
+
+  const fetchPipelines = useCallback(async () => {
+    if (!accountId) return;
+    const [pipeRes, stageRes] = await Promise.all([
+      supabase.from('pipelines').select('id, name').eq('account_id', accountId),
+      supabase.from('pipeline_stages').select('id, pipeline_id, name, color, default_assignee_id').eq('account_id', accountId).order('display_order'),
+    ]);
+    if (pipeRes.data) {
+      setPipelines(pipeRes.data);
+      if (pipeRes.data.length > 0) {
+        setSelectedPipelineId((prev) => prev || pipeRes.data[0].id);
+      }
+    }
+    if (stageRes.data) {
+      const stageMap: Record<string, { id: string; name: string; color: string; default_assignee_id?: string | null }[]> = {};
+      stageRes.data.forEach((st) => {
+        if (!stageMap[st.pipeline_id]) stageMap[st.pipeline_id] = [];
+        stageMap[st.pipeline_id].push(st);
+      });
+      setStages(stageMap);
+    }
+  }, [accountId, supabase]);
+
+  const openAddToPipeline = (contact: Contact) => {
+    setPipelineTargetContacts([contact]);
+    setDealTitle(`${contact.name || contact.phone || 'Lead'} - Deal`);
+    setDealValue('0');
+    fetchPipelines();
+    setAddToPipelineOpen(true);
+  };
+
+  const openBulkAddToPipeline = () => {
+    const targets = contacts.filter((c) => selected.has(c.id));
+    if (targets.length === 0) return;
+    setPipelineTargetContacts(targets);
+    setDealTitle(targets.length === 1 ? `${targets[0].name || targets[0].phone} - Deal` : `${targets.length} Contacts Deal`);
+    setDealValue('0');
+    fetchPipelines();
+    setAddToPipelineOpen(true);
+  };
+
+  const handleConfirmAddToPipeline = async () => {
+    if (!selectedPipelineId || !selectedStageId || pipelineTargetContacts.length === 0) {
+      toast.error('Please select a pipeline and stage');
+      return;
+    }
+    setAddingToPipeline(true);
+    try {
+      const currentStages = stages[selectedPipelineId] || [];
+      const stageInfo = currentStages.find((s) => s.id === selectedStageId);
+      const assignedTo = stageInfo?.default_assignee_id || profile?.id || null;
+      const numValue = parseFloat(dealValue) || 0;
+
+      const rows = pipelineTargetContacts.map((c) => ({
+        title: pipelineTargetContacts.length === 1 ? dealTitle.trim() || `${c.name || c.phone} - Deal` : `${c.name || c.phone} - Deal`,
+        value: numValue,
+        contact_id: c.id,
+        pipeline_id: selectedPipelineId,
+        stage_id: selectedStageId,
+        account_id: accountId,
+        user_id: user?.id,
+        assigned_to: assignedTo,
+        status: 'open',
+      }));
+
+      const { error } = await supabase.from('deals').insert(rows);
+      if (error) throw error;
+
+      toast.success(
+        pipelineTargetContacts.length === 1
+          ? `Added "${pipelineTargetContacts[0].name || pipelineTargetContacts[0].phone}" to pipeline!`
+          : `Added ${pipelineTargetContacts.length} contacts to pipeline!`
+      );
+      setAddToPipelineOpen(false);
+      setSelected(new Set());
+    } catch (err: unknown) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : 'Failed to add to pipeline');
+    } finally {
+      setAddingToPipeline(false);
+    }
+  };
 
   const handlePhotoUpdated = (updated: Contact) => {
     setContacts((prev) =>
@@ -523,6 +621,17 @@ export default function ContactsPage() {
             >
               {t('clearSelection')}
             </Button>
+            {isAdmin && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openBulkAddToPipeline()}
+                className="border-border text-foreground hover:bg-muted gap-1 text-xs"
+              >
+                <GitBranch className="size-3.5 text-primary" />
+                Add to Pipeline
+              </Button>
+            )}
             <GatedButton
               variant="destructive"
               size="sm"
@@ -711,6 +820,18 @@ export default function ContactsPage() {
                           <Camera className="size-4" />
                           Attach Photo
                         </DropdownMenuItem>
+                        {isAdmin && (
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openAddToPipeline(contact);
+                            }}
+                            className="text-popover-foreground focus:bg-muted focus:text-foreground"
+                          >
+                            <GitBranch className="size-4 text-primary" />
+                            Add to Pipeline
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem
                           onClick={(e) => {
                             e.stopPropagation();
@@ -883,6 +1004,131 @@ export default function ContactsPage() {
         contact={attachTarget}
         onPhotoUpdated={handlePhotoUpdated}
       />
+
+      {/* Add to Pipeline Dialog for Admin */}
+      <Dialog open={addToPipelineOpen} onOpenChange={setAddToPipelineOpen}>
+        <DialogContent className="sm:max-w-md bg-card text-card-foreground border-border">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-semibold">
+              <GitBranch className="size-4 text-primary" />
+              Add to Active Pipeline
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              {pipelineTargetContacts.length === 1
+                ? `Assign "${pipelineTargetContacts[0].name || pipelineTargetContacts[0].phone}" to a sales or service pipeline.`
+                : `Assign ${pipelineTargetContacts.length} selected contacts to a pipeline.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Pipeline Selector */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-foreground">Select Pipeline</Label>
+              {pipelines.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">No pipelines found. Please create one in Pipelines first.</p>
+              ) : (
+                <div className="grid grid-cols-1 gap-1.5">
+                  <select
+                    value={selectedPipelineId}
+                    onChange={(e) => {
+                      setSelectedPipelineId(e.target.value);
+                      const currentStages = stages[e.target.value] || [];
+                      if (currentStages.length > 0) {
+                        setSelectedStageId(currentStages[0].id);
+                      }
+                    }}
+                    className="flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-xs text-foreground shadow-xs focus:border-primary focus:outline-none"
+                  >
+                    <option value="" disabled>Choose a pipeline...</option>
+                    {pipelines.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {/* Stage Selector */}
+            {selectedPipelineId && (
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-foreground">Pipeline Stage</Label>
+                {(!stages[selectedPipelineId] || stages[selectedPipelineId].length === 0) ? (
+                  <p className="text-xs text-muted-foreground italic">No stages defined for this pipeline.</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {stages[selectedPipelineId].map((st) => {
+                      const isSel = selectedStageId === st.id;
+                      return (
+                        <button
+                          key={st.id}
+                          type="button"
+                          onClick={() => setSelectedStageId(st.id)}
+                          className={`flex items-center gap-1.5 rounded-lg border p-2 text-xs text-left transition-all cursor-pointer ${
+                            isSel
+                              ? "border-primary bg-primary/10 text-primary font-semibold ring-1 ring-primary/40"
+                              : "border-border/70 bg-muted/20 text-muted-foreground hover:bg-muted/50"
+                          }`}
+                        >
+                          <span
+                            className="size-2 rounded-full shrink-0"
+                            style={{ backgroundColor: st.color || "#8b5cf6" }}
+                          />
+                          <span className="truncate">{st.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Deal Title */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-foreground">Deal Title</Label>
+              <Input
+                value={dealTitle}
+                onChange={(e) => setDealTitle(e.target.value)}
+                placeholder="e.g. Nayak Computer - New Order"
+                className="h-8 text-xs bg-background"
+              />
+            </div>
+
+            {/* Deal Value */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-foreground">Deal Value (₹ / Amount)</Label>
+              <Input
+                type="number"
+                value={dealValue}
+                onChange={(e) => setDealValue(e.target.value)}
+                placeholder="0"
+                className="h-8 text-xs bg-background font-mono"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAddToPipelineOpen(false)}
+              disabled={addingToPipeline}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleConfirmAddToPipeline}
+              disabled={addingToPipeline || !selectedPipelineId || !selectedStageId}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 gap-1.5"
+            >
+              {addingToPipeline && <Loader2 className="size-3.5 animate-spin" />}
+              Confirm & Add to Pipeline
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
