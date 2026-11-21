@@ -24,6 +24,7 @@ import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import { UpdatePanel } from '@/components/settings/update-panel';
 import { StorageManager } from '@/components/settings/storage-manager';
 import {
+  SECTION_META,
   resolveSection,
   type SettingsSection,
 } from '@/components/settings/settings-sections';
