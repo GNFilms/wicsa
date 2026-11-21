@@ -53,13 +53,29 @@ export function ReminderCalendarModal({
 
   const handleTaskClick = (task: Task) => {
     onOpenChange(false);
-    if (task.conversation_id) {
-      router.push(`/inbox?c=${task.conversation_id}`);
+    const conversationId = task.conversation_id || null;
+    const contactId = task.contact_id || task.contact?.id || null;
+    const phone = task.contact?.phone || null;
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("wacrm:open-chat", {
+          detail: {
+            conversationId,
+            contactId,
+            phone,
+            task,
+          },
+        })
+      );
+    }
+
+    if (conversationId) {
+      router.push(`/inbox?c=${conversationId}`);
       return;
     }
-    const targetContactId = task.contact_id || task.contact?.id;
-    if (targetContactId) {
-      router.push(`/inbox?contactId=${targetContactId}`);
+    if (contactId) {
+      router.push(`/inbox?contactId=${contactId}`);
       return;
     }
     router.push(`/inbox`);

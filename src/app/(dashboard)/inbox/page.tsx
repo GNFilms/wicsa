@@ -552,8 +552,6 @@ function InboxPageInner() {
           handleSelectConversation(found);
           return;
         }
-        router.replace(`/inbox?c=${task.conversation_id}`, { scroll: false });
-        return;
       }
 
       // 2. If task has contact_id or contact phone, find matching conversation
@@ -571,28 +569,187 @@ function InboxPageInner() {
           return;
         }
 
-        // 3. Fallback: query database for a conversation with this contact
+        // 3. Query database for a conversation with this contact or conversation_id
         try {
           const supabase = createClient();
-          let query = supabase.from("conversations").select(CONVERSATION_SELECT).limit(1);
-          if (targetContactId) {
-            query = query.eq("contact_id", targetContactId);
+          if (task.conversation_id) {
+            const { data } = await supabase
+              .from("conversations")
+              .select(CONVERSATION_SELECT)
+              .eq("id", task.conversation_id)
+              .maybeSingle();
+            if (data) {
+              const normalized = normalizeConversation(data);
+              setConversations((prev) => [normalized, ...prev.filter((c) => c.id !== normalized.id)]);
+              handleSelectConversation(normalized);
+              return;
+            }
           }
-          const { data } = await query;
-          if (data && data.length > 0) {
-            const normalized = normalizeConversation(data[0]);
-            handleSelectConversation(normalized);
-            return;
+
+          if (targetContactId) {
+            const { data } = await supabase
+              .from("conversations")
+              .select(CONVERSATION_SELECT)
+              .eq("contact_id", targetContactId)
+              .order("last_message_at", { ascending: false })
+              .limit(1);
+            if (data && data.length > 0) {
+              const normalized = normalizeConversation(data[0]);
+              setConversations((prev) => [normalized, ...prev.filter((c) => c.id !== normalized.id)]);
+              handleSelectConversation(normalized);
+              return;
+            }
           }
         } catch (e) {
           console.error("Open task chat error:", e);
         }
       }
 
+      if (task.conversation_id) {
+        router.replace(`/inbox?c=${task.conversation_id}`, { scroll: false });
+        return;
+      }
+
       toast.info(`Reminder: "${task.title}". No active chat linked yet.`);
     },
     [conversations, handleSelectConversation, router]
   );
+
+  // Reactive listener for deep links and quick-bar / calendar clicks
+  useEffect(() => {
+    const handleOpenChatEvent = async (e: Event) => {
+      const customEvent = e as CustomEvent<{
+        conversationId?: string | null;
+        contactId?: string | null;
+        phone?: string | null;
+        task?: Task | null;
+      }>;
+      const { conversationId, contactId, phone, task } = customEvent.detail || {};
+
+      if (task) {
+        await handleOpenTaskChat(task);
+        return;
+      }
+
+      // Direct match in existing conversations
+      if (conversationId) {
+        const match = conversations.find((c) => c.id === conversationId);
+        if (match) {
+          handleSelectConversation(match);
+          return;
+        }
+      }
+
+      if (contactId || phone) {
+        const match = conversations.find(
+          (c) =>
+            (contactId && c.contact_id === contactId) ||
+            (phone && c.contact?.phone === phone)
+        );
+        if (match) {
+          handleSelectConversation(match);
+          return;
+        }
+      }
+
+      // Query database if not in current loaded conversations
+      try {
+        const supabase = createClient();
+        if (conversationId) {
+          const { data } = await supabase
+            .from("conversations")
+            .select(CONVERSATION_SELECT)
+            .eq("id", conversationId)
+            .maybeSingle();
+          if (data) {
+            const normalized = normalizeConversation(data);
+            setConversations((prev) => [normalized, ...prev.filter((c) => c.id !== normalized.id)]);
+            handleSelectConversation(normalized);
+            return;
+          }
+        }
+        if (contactId) {
+          const { data } = await supabase
+            .from("conversations")
+            .select(CONVERSATION_SELECT)
+            .eq("contact_id", contactId)
+            .order("last_message_at", { ascending: false })
+            .limit(1);
+          if (data && data.length > 0) {
+            const normalized = normalizeConversation(data[0]);
+            setConversations((prev) => [normalized, ...prev.filter((c) => c.id !== normalized.id)]);
+            handleSelectConversation(normalized);
+            return;
+          }
+        }
+      } catch (err) {
+        console.error("Failed to open chat from event:", err);
+      }
+    };
+
+    window.addEventListener("wacrm:open-chat", handleOpenChatEvent);
+    return () => {
+      window.removeEventListener("wacrm:open-chat", handleOpenChatEvent);
+    };
+  }, [conversations, handleSelectConversation, handleOpenTaskChat]);
+
+  // Reactive URL change listener (handles navigation to /inbox?c=... or /inbox?contactId=...)
+  useEffect(() => {
+    if (!deepLinkConvId && !deepLinkContactId) return;
+
+    if (deepLinkConvId) {
+      if (activeConversation?.id === deepLinkConvId) return;
+      const match = conversations.find((c) => c.id === deepLinkConvId);
+      if (match) {
+        handleSelectConversation(match);
+        return;
+      }
+      // Query DB for conversationId
+      (async () => {
+        try {
+          const supabase = createClient();
+          const { data } = await supabase
+            .from("conversations")
+            .select(CONVERSATION_SELECT)
+            .eq("id", deepLinkConvId)
+            .maybeSingle();
+          if (data) {
+            const normalized = normalizeConversation(data);
+            setConversations((prev) => [normalized, ...prev.filter((c) => c.id !== normalized.id)]);
+            handleSelectConversation(normalized);
+          }
+        } catch (e) {
+          console.error("Failed to deep link conversation:", e);
+        }
+      })();
+    } else if (deepLinkContactId) {
+      if (activeConversation?.contact_id === deepLinkContactId) return;
+      const match = conversations.find((c) => c.contact_id === deepLinkContactId);
+      if (match) {
+        handleSelectConversation(match);
+        return;
+      }
+      // Query DB for contactId
+      (async () => {
+        try {
+          const supabase = createClient();
+          const { data } = await supabase
+            .from("conversations")
+            .select(CONVERSATION_SELECT)
+            .eq("contact_id", deepLinkContactId)
+            .order("last_message_at", { ascending: false })
+            .limit(1);
+          if (data && data.length > 0) {
+            const normalized = normalizeConversation(data[0]);
+            setConversations((prev) => [normalized, ...prev.filter((c) => c.id !== normalized.id)]);
+            handleSelectConversation(normalized);
+          }
+        } catch (e) {
+          console.error("Failed to deep link contact:", e);
+        }
+      })();
+    }
+  }, [deepLinkConvId, deepLinkContactId, conversations, activeConversation?.id, activeConversation?.contact_id, handleSelectConversation]);
 
   // Mobile "back" — deselect the conversation so the list pane comes
   // back. Also clears the ?c= param so a refresh lands on the list

@@ -316,11 +316,13 @@ export default function ContactsPage() {
             body: JSON.stringify({
               contact_id: c.id,
               message_type: 'template',
+              media_url: values.headerMediaUrl || template.header_media_url || undefined,
               template_name: template.name,
               template_language: template.language,
               template_message_params: {
                 body: values.body,
                 headerText: values.headerText,
+                headerMediaUrl: values.headerMediaUrl || template.header_media_url || undefined,
                 buttonParams: values.buttonParams,
               },
               template_params: values.body,

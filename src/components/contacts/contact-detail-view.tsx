@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { addContactTag, deleteContactTag } from '@/lib/contacts/tag-api';
 import { useAuth } from '@/hooks/use-auth';
@@ -43,6 +44,7 @@ import {
   MapPin,
   Paperclip,
   GitBranch,
+  MessageSquare,
 } from 'lucide-react';
 import { AttachPhotoDialog } from './attach-photo-dialog';
 import { ContactAttachments } from './contact-attachments';
@@ -64,6 +66,7 @@ export function ContactDetailView({
   onUpdated,
 }: ContactDetailViewProps) {
   const t = useTranslations('Contacts.detailView');
+  const router = useRouter();
   const supabase = createClient();
   const { accountId, defaultCurrency } = useAuth();
 
@@ -443,11 +446,13 @@ export function ContactDetailView({
           // contact, mirroring the inbox template-send payload otherwise.
           contact_id: contactId,
           message_type: 'template',
+          media_url: values.headerMediaUrl || template.header_media_url || undefined,
           template_name: template.name,
           template_language: template.language,
           template_message_params: {
             body: values.body,
             headerText: values.headerText,
+            headerMediaUrl: values.headerMediaUrl || template.header_media_url || undefined,
             buttonParams: values.buttonParams,
           },
           template_params: values.body,
@@ -567,12 +572,35 @@ export function ContactDetailView({
                   </div>
                 </div>
               </div>
-              <div className="mt-3">
+              <div className="mt-3 flex items-center gap-2">
                 <Button
                   size="sm"
+                  onClick={() => {
+                    onOpenChange(false);
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(
+                        new CustomEvent('wacrm:open-chat', {
+                          detail: {
+                            contactId: contact.id,
+                            phone: contact.phone,
+                          },
+                        })
+                      );
+                    }
+                    router.push(`/inbox?contactId=${contact.id}`);
+                  }}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90 font-medium"
+                >
+                  <MessageSquare className="size-4" />
+                  Open Chat
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="outline"
                   onClick={() => setTemplatePickerOpen(true)}
                   disabled={sendingTemplate}
-                  className="bg-primary text-primary-foreground hover:bg-primary/90"
+                  className="border-primary/30 text-primary hover:bg-primary/10"
                 >
                   {sendingTemplate ? (
                     <Loader2 className="size-4 animate-spin" />

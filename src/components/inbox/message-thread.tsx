@@ -721,6 +721,7 @@ export function MessageThread({
         sender_type: "agent",
         content_type: "template",
         content_text: renderedBody,
+        media_url: values.headerMediaUrl || template.header_media_url || null,
         template_name: template.name,
         status: "sending",
         created_at: new Date().toISOString(),
@@ -734,6 +735,7 @@ export function MessageThread({
           body: JSON.stringify({
             conversation_id: conversation.id,
             message_type: "template",
+            media_url: values.headerMediaUrl || template.header_media_url || undefined,
             template_name: template.name,
             template_language: template.language,
             // Structured params drive the new send-builder path
@@ -743,6 +745,7 @@ export function MessageThread({
             template_message_params: {
               body: values.body,
               headerText: values.headerText,
+              headerMediaUrl: values.headerMediaUrl || template.header_media_url || undefined,
               buttonParams: values.buttonParams,
             },
             template_params: values.body,
