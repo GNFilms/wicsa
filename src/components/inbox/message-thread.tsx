@@ -717,7 +717,7 @@ export function MessageThread({
         sender_type: "agent",
         content_type: "template",
         content_text: renderedBody,
-        media_url: values.headerMediaUrl || template.header_media_url || null,
+        media_url: values.headerMediaUrl || template.header_media_url || undefined,
         template_name: template.name,
         status: "sending",
         created_at: new Date().toISOString(),

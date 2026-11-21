@@ -272,7 +272,7 @@ export function TemplatePicker({
                         <Badge className="border border-primary/30 bg-primary/20 text-[10px] text-primary">
                           {t.category}
                         </Badge>
-                        {t.header_type && t.header_type !== "none" && (
+                        {t.header_type && (
                           <Badge variant="outline" className="text-[10px] uppercase font-mono">
                             {t.header_type}
                           </Badge>
