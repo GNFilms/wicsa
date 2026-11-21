@@ -18,9 +18,11 @@
 
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Eye, EyeOff, Loader2, UserPlus } from 'lucide-react';
+import { Eye, EyeOff, Loader2, UserPlus, Kanban } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { cn } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -79,7 +81,7 @@ export function CreateMemberDialog({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [selectedRole, setSelectedRole] = useState<string>('agent');
-  const [selectedPipeline, setSelectedPipeline] = useState<string>('none');
+  const [selectedPipelineIds, setSelectedPipelineIds] = useState<string[]>([]);
   const [selectedStage, setSelectedStage] = useState<string>('none');
   const [label, setLabel] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -126,15 +128,16 @@ export function CreateMemberDialog({
     setPassword('');
     setShowPassword(false);
     setSelectedRole('agent');
-    setSelectedPipeline('none');
+    setSelectedPipelineIds([]);
     setSelectedStage('none');
     setLabel('');
     setSubmitting(false);
   }
 
+  const primaryPipelineId = selectedPipelineIds[0] || null;
   const filteredStages =
-    selectedPipeline && selectedPipeline !== 'none'
-      ? stages.filter((s) => s.pipeline_id === selectedPipeline)
+    primaryPipelineId
+      ? stages.filter((s) => s.pipeline_id === primaryPipelineId)
       : [];
 
   async function handleCreate() {
@@ -166,10 +169,12 @@ export function CreateMemberDialog({
 
       const baseRole = isCustom ? 'agent' : selectedRole;
 
-      const pickedPipeline =
-        selectedPipeline && selectedPipeline !== 'none'
-          ? pipelines.find((p) => p.id === selectedPipeline)
-          : null;
+      const pickedPipelines = pipelines.filter((p) =>
+        selectedPipelineIds.includes(p.id)
+      );
+      const primaryPipeline = pickedPipelines[0] || null;
+      const allPipelineNames =
+        pickedPipelines.map((p) => p.name).join(', ') || null;
 
       const pickedStage =
         selectedStage && selectedStage !== 'none'
@@ -186,8 +191,8 @@ export function CreateMemberDialog({
           role: baseRole,
           custom_role_id: customRoleId,
           custom_role_name: pickedCustom?.name || undefined,
-          pipeline_id: pickedPipeline ? pickedPipeline.id : null,
-          pipeline_name: pickedPipeline ? pickedPipeline.name : null,
+          pipeline_id: primaryPipeline ? primaryPipeline.id : null,
+          pipeline_name: allPipelineNames,
           stage_id: pickedStage ? pickedStage.id : null,
           stage_name: pickedStage ? pickedStage.name : null,
           label: trimmedLabel || undefined,
@@ -347,66 +352,103 @@ export function CreateMemberDialog({
               Assignment & Categorization (Optional)
             </p>
 
-            {/* Pipeline */}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-foreground flex items-center justify-between">
-                <span>Pipeline</span>
-                <span className="text-[11px] text-muted-foreground font-normal">(Optional)</span>
-              </Label>
-              <Select
-                value={selectedPipeline}
-                onValueChange={(v) => {
-                  setSelectedPipeline(v || 'none');
-                  setSelectedStage('none');
-                }}
-                disabled={submitting}
-              >
-                <SelectTrigger className="w-full bg-muted border-border text-foreground text-sm">
-                  <SelectValue placeholder="Select a pipeline..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  {pipelines.map((pipe) => (
-                    <SelectItem key={pipe.id} value={pipe.id}>
-                      {pipe.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            {/* Pipelines Checklist */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                  <Kanban className="size-3.5 text-primary" />
+                  <span>Assign Pipelines</span>
+                  <span className="text-[11px] text-muted-foreground font-normal">
+                    ({selectedPipelineIds.length} selected)
+                  </span>
+                </Label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPipelineIds(pipelines.map((p) => p.id))}
+                    className="text-[11px] text-primary hover:underline font-medium"
+                  >
+                    Select All
+                  </button>
+                  <span className="text-[10px] text-muted-foreground">|</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedPipelineIds([]);
+                      setSelectedStage('none');
+                    }}
+                    className="text-[11px] text-muted-foreground hover:underline"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-40 overflow-y-auto space-y-1 rounded-lg border border-border/80 bg-muted/40 p-2">
+                {pipelines.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic p-1.5">No active pipelines found</p>
+                ) : (
+                  pipelines.map((pipe) => {
+                    const checked = selectedPipelineIds.includes(pipe.id);
+                    return (
+                      <label
+                        key={pipe.id}
+                        className={cn(
+                          'flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs transition-colors cursor-pointer select-none',
+                          checked
+                            ? 'bg-primary/10 text-primary font-medium'
+                            : 'text-foreground hover:bg-muted'
+                        )}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(c) => {
+                            setSelectedPipelineIds((prev) =>
+                              c ? [...prev, pipe.id] : prev.filter((id) => id !== pipe.id)
+                            );
+                          }}
+                        />
+                        <Kanban className="size-3.5 shrink-0 opacity-70" />
+                        <span className="truncate flex-1">{pipe.name}</span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
             </div>
 
-            {/* Stage */}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-foreground flex items-center justify-between">
-                <span>Stage</span>
-                <span className="text-[11px] text-muted-foreground font-normal">(Optional)</span>
-              </Label>
-              <Select
-                value={selectedStage}
-                onValueChange={(v) => setSelectedStage(v || 'none')}
-                disabled={submitting || selectedPipeline === 'none' || filteredStages.length === 0}
-              >
-                <SelectTrigger className="w-full bg-muted border-border text-foreground text-sm">
-                  <SelectValue
-                    placeholder={
-                      selectedPipeline === 'none'
-                        ? 'Select a pipeline first'
-                        : filteredStages.length === 0
-                        ? 'No stages in this pipeline'
-                        : 'Select a stage...'
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  {filteredStages.map((stg) => (
-                    <SelectItem key={stg.id} value={stg.id}>
-                      {stg.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Stage (visible when 1 pipeline is selected) */}
+            {selectedPipelineIds.length === 1 && (
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-foreground flex items-center justify-between">
+                  <span>Initial Stage</span>
+                  <span className="text-[11px] text-muted-foreground font-normal">(Optional)</span>
+                </Label>
+                <Select
+                  value={selectedStage}
+                  onValueChange={(v) => setSelectedStage(v || 'none')}
+                  disabled={submitting || filteredStages.length === 0}
+                >
+                  <SelectTrigger className="w-full bg-muted border-border text-foreground text-sm">
+                    <SelectValue
+                      placeholder={
+                        filteredStages.length === 0
+                          ? 'No stages in this pipeline'
+                          : 'Select initial stage...'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    {filteredStages.map((stg) => (
+                      <SelectItem key={stg.id} value={stg.id}>
+                        {stg.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             {/* Label */}
             <div className="space-y-1.5">

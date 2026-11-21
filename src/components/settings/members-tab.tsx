@@ -50,6 +50,9 @@ import {
 } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { createClient } from '@/lib/supabase/client';
+import { cn } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -156,6 +159,76 @@ export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
     null,
   );
+  const [allPipelines, setAllPipelines] = useState<{ id: string; name: string }[]>([]);
+  const [assigningMember, setAssigningMember] = useState<Member | null>(null);
+  const [selectedPipelineIds, setSelectedPipelineIds] = useState<string[]>([]);
+  const [savingPipelines, setSavingPipelines] = useState(false);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from('pipelines')
+      .select('id, name')
+      .order('name')
+      .then(({ data }) => {
+        if (data) setAllPipelines(data);
+      });
+  }, []);
+
+  function handleOpenAssign(member: Member) {
+    setAssigningMember(member);
+    const assignedNames = member.pipeline_name
+      ? member.pipeline_name.split(',').map((s) => s.trim().toLowerCase())
+      : [];
+    const matchedIds = allPipelines
+      .filter(
+        (p) =>
+          p.id === member.pipeline_id ||
+          assignedNames.includes(p.name.trim().toLowerCase())
+      )
+      .map((p) => p.id);
+    setSelectedPipelineIds(matchedIds);
+  }
+
+  async function handleSavePipelines() {
+    if (!assigningMember) return;
+    setSavingPipelines(true);
+    try {
+      const picked = allPipelines.filter((p) => selectedPipelineIds.includes(p.id));
+      const primaryId = picked[0]?.id || null;
+      const names = picked.map((p) => p.name).join(', ') || null;
+
+      const res = await fetch(`/api/account/members/${assigningMember.user_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pipeline_id: primaryId,
+          pipeline_name: names,
+        }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || 'Failed to update pipelines');
+        return;
+      }
+
+      toast.success(`Pipelines updated for ${assigningMember.full_name || 'member'}`);
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.user_id === assigningMember.user_id
+            ? { ...m, pipeline_id: primaryId, pipeline_name: names }
+            : m
+        )
+      );
+      setAssigningMember(null);
+    } catch (err) {
+      console.error('[MembersTab] pipeline assignment error:', err);
+      toast.error('Could not connect to the server');
+    } finally {
+      setSavingPipelines(false);
+    }
+  }
 
   const loadEverything = useCallback(async () => {
     try {
@@ -468,15 +541,26 @@ export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
                       )}
                       {(member.pipeline_name || member.stage_name || member.label) && (
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                          {member.pipeline_name && (
-                            <span className="inline-flex items-center gap-1 rounded bg-muted/80 px-1.5 py-0.5 text-[10px] text-muted-foreground border border-border/60">
-                              <Kanban className="size-2.5 text-primary" />
-                              {member.pipeline_name}
-                              {member.stage_name && (
-                                <span className="text-foreground font-medium">› {member.stage_name}</span>
-                              )}
-                            </span>
-                          )}
+                          {member.pipeline_name &&
+                            member.pipeline_name.split(',').map((pName, idx) => {
+                              const trimmed = pName.trim();
+                              if (!trimmed) return null;
+                              return (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  onClick={() => canManageMembers && !isOwnerRow && handleOpenAssign(member)}
+                                  className="inline-flex items-center gap-1 rounded bg-muted/80 px-1.5 py-0.5 text-[10px] text-muted-foreground border border-border/60 hover:border-primary/40 hover:text-foreground transition-colors cursor-pointer"
+                                  title={canManageMembers && !isOwnerRow ? 'Click to manage assigned pipelines' : undefined}
+                                >
+                                  <Kanban className="size-2.5 text-primary" />
+                                  <span>{trimmed}</span>
+                                  {idx === 0 && member.stage_name && (
+                                    <span className="text-foreground font-medium">› {member.stage_name}</span>
+                                  )}
+                                </button>
+                              );
+                            })}
                           {member.label && (
                             <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary border border-primary/20 font-medium">
                               <Tag className="size-2.5" />
@@ -499,6 +583,22 @@ export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
                       inline. Items align to the start on mobile so the
                       role dropdown lines up under the avatar. */}
                   <div className="flex items-center gap-2 sm:gap-3">
+                    {/* Pipeline assignment button */}
+                    {canManageMembers && !isOwnerRow && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenAssign(member)}
+                        disabled={isBusy}
+                        className="h-9 px-2.5 text-xs font-medium text-foreground gap-1.5 bg-muted/60 hover:bg-muted border-border"
+                        title="Assign pipelines"
+                      >
+                        <Kanban className="size-3.5 text-primary" />
+                        <span className="hidden sm:inline">Pipelines</span>
+                      </Button>
+                    )}
+
                     {/* Role display / editor. Inline Select is admin+
                         only AND not allowed on the owner row (owner
                         changes go through transfer, which lands later). */}
@@ -746,6 +846,101 @@ export function MembersTab({ onGoToRoles }: MembersTabProps = {}) {
               ) : (
                 deleteLoginToo ? 'Delete user' : t('removeBtn')
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Assign Pipelines Dialog */}
+      <Dialog
+        open={assigningMember !== null}
+        onOpenChange={(open) => {
+          if (!open) setAssigningMember(null);
+        }}
+      >
+        <DialogContent className="bg-popover border-border sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-popover-foreground">
+              <Kanban className="size-5 text-primary" />
+              Assign Pipelines
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground text-xs">
+              Select which active pipelines to assign to <strong className="text-foreground">{assigningMember?.full_name}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Quick controls */}
+          <div className="flex items-center justify-between text-xs pt-1 pb-0.5">
+            <span className="text-muted-foreground font-medium">
+              Active Pipelines ({selectedPipelineIds.length} of {allPipelines.length} assigned)
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedPipelineIds(allPipelines.map((p) => p.id))}
+                className="text-primary hover:underline font-medium text-[11px]"
+              >
+                Select All
+              </button>
+              <span className="text-muted-foreground">|</span>
+              <button
+                type="button"
+                onClick={() => setSelectedPipelineIds([])}
+                className="text-muted-foreground hover:underline text-[11px]"
+              >
+                Clear All
+              </button>
+            </div>
+          </div>
+
+          {/* Checklist */}
+          <div className="max-h-60 overflow-y-auto space-y-1 rounded-lg border border-border/80 bg-muted/40 p-2">
+            {allPipelines.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic p-2">No active pipelines found</p>
+            ) : (
+              allPipelines.map((pipe) => {
+                const isChecked = selectedPipelineIds.includes(pipe.id);
+                return (
+                  <label
+                    key={pipe.id}
+                    className={cn(
+                      'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-xs transition-colors cursor-pointer select-none',
+                      isChecked ? 'bg-primary/10 text-primary font-medium' : 'text-foreground hover:bg-muted'
+                    )}
+                  >
+                    <Checkbox
+                      checked={isChecked}
+                      onCheckedChange={(c) => {
+                        setSelectedPipelineIds((prev) =>
+                          c ? [...prev, pipe.id] : prev.filter((id) => id !== pipe.id)
+                        );
+                      }}
+                    />
+                    <Kanban className="size-3.5 shrink-0 opacity-70" />
+                    <span className="truncate flex-1">{pipe.name}</span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+
+          <DialogFooter className="bg-popover border-border pt-2 flex items-center justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAssigningMember(null)}
+              disabled={savingPipelines}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleSavePipelines}
+              disabled={savingPipelines}
+              className="gap-1.5"
+            >
+              {savingPipelines && <Loader2 className="size-3.5 animate-spin" />}
+              Save Assignments
             </Button>
           </DialogFooter>
         </DialogContent>

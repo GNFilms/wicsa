@@ -698,7 +698,9 @@ function InboxPageInner() {
     if (!deepLinkConvId && !deepLinkContactId) return;
 
     if (deepLinkConvId) {
-      if (activeConversation?.id === deepLinkConvId) return;
+      if (autoSelectedForDeepLinkRef.current === deepLinkConvId) return;
+      autoSelectedForDeepLinkRef.current = deepLinkConvId;
+
       const match = conversations.find((c) => c.id === deepLinkConvId);
       if (match) {
         handleSelectConversation(match);
@@ -723,7 +725,10 @@ function InboxPageInner() {
         }
       })();
     } else if (deepLinkContactId) {
-      if (activeConversation?.contact_id === deepLinkContactId) return;
+      const contactKey = `contact-${deepLinkContactId}`;
+      if (autoSelectedForDeepLinkRef.current === contactKey) return;
+      autoSelectedForDeepLinkRef.current = contactKey;
+
       const match = conversations.find((c) => c.contact_id === deepLinkContactId);
       if (match) {
         handleSelectConversation(match);
@@ -749,7 +754,7 @@ function InboxPageInner() {
         }
       })();
     }
-  }, [deepLinkConvId, deepLinkContactId, conversations, activeConversation?.id, activeConversation?.contact_id, handleSelectConversation]);
+  }, [deepLinkConvId, deepLinkContactId, conversations, handleSelectConversation]);
 
   // Mobile "back" — deselect the conversation so the list pane comes
   // back. Also clears the ?c= param so a refresh lands on the list

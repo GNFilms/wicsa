@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useMemo, type ReactNode } from 'react';
+import { Suspense, useEffect, useMemo, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
@@ -47,7 +47,8 @@ export default function SettingsPage() {
 function SettingsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { defaultCurrency } = useAuth();
+  const { defaultCurrency, isOwner, isAdmin } = useAuth();
+  const canAccessWorkspace = isOwner || isAdmin;
   const { mode } = useTheme();
   const t = useTranslations('Settings');
 
@@ -62,6 +63,13 @@ function SettingsPageInner() {
     params.set('tab', next);
     router.replace(`/settings?${params.toString()}`, { scroll: false });
   };
+
+  // Protect workspace tabs from non-admins
+  useEffect(() => {
+    if (!canAccessWorkspace && SECTION_META[section]?.group === 'workspace') {
+      go('overview');
+    }
+  }, [canAccessWorkspace, section]);
 
   // Cheap, fetch-free rail hints. The Overview landing carries the
   // full live status/counts; the rail just surfaces the two that are

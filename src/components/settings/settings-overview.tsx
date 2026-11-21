@@ -36,8 +36,9 @@ export function SettingsOverview({
 }: {
   onSelect: (section: SettingsSection) => void;
 }) {
-  const { user, profile, accountId, accountRole, defaultCurrency, canManageMembers } =
+  const { user, profile, accountId, accountRole, isOwner, isAdmin, defaultCurrency, canManageMembers } =
     useAuth();
+  const canAccessWorkspace = isOwner || isAdmin;
   const { mode, theme } = useTheme();
   const t = useTranslations('Settings.overview');
   const tRoles = useTranslations('Settings.roles');
@@ -53,7 +54,11 @@ export function SettingsOverview({
   const [whatsappLoading, setWhatsappLoading] = useState(true);
 
   useEffect(() => {
-    if (!user || !accountId) return;
+    if (!user || !accountId || !canAccessWorkspace) {
+      setCountsLoading(false);
+      setWhatsappLoading(false);
+      return;
+    }
     let cancelled = false;
     const supabase = createClient();
     const userId = user.id;
@@ -234,6 +239,26 @@ export function SettingsOverview({
     },
   ];
 
+  const visibleTiles = canAccessWorkspace
+    ? tiles
+    : [
+        {
+          section: 'profile' as SettingsSection,
+          loading: false,
+          subtitle: profile?.email || 'Manage profile & display name',
+        },
+        {
+          section: 'security' as SettingsSection,
+          loading: false,
+          subtitle: 'Password & active sessions',
+        },
+        {
+          section: 'appearance' as SettingsSection,
+          loading: false,
+          subtitle: t('appearance', { mode: cap(mode), theme: themeName }),
+        },
+      ];
+
   return (
     <section className="animate-in fade-in-50 duration-200">
       {/* Identity */}
@@ -266,7 +291,7 @@ export function SettingsOverview({
 
       {/* Status tiles */}
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {tiles.map(({ section, loading, subtitle }) => {
+        {visibleTiles.map(({ section, loading, subtitle }) => {
           const meta = SECTION_META[section];
           const Icon = meta.icon;
           return (

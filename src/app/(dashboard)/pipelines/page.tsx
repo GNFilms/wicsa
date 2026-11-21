@@ -87,14 +87,28 @@ export default function PipelinesPage() {
     }
     const all = (data ?? []) as Pipeline[];
 
-    // Filter assigned pipelines for non-admin team members if assigned to a specific pipeline
+    // Filter assigned pipelines for non-admin team members if assigned to specific pipeline(s)
     const assignedPipelineId = (profile as { pipeline_id?: string | null })?.pipeline_id;
-    if (!isOwner && !isAdmin && assignedPipelineId) {
-      const filtered = all.filter((p: Pipeline) => p.id === assignedPipelineId);
+    const assignedPipelineName = (profile as { pipeline_name?: string | null })?.pipeline_name;
+    if (!isOwner && !isAdmin && (assignedPipelineId || assignedPipelineName)) {
+      const allowedNames = assignedPipelineName
+        ? assignedPipelineName.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+        : [];
+      const filtered = all.filter(
+        (p: Pipeline) =>
+          (assignedPipelineId && p.id === assignedPipelineId) ||
+          allowedNames.includes(p.name.trim().toLowerCase())
+      );
       return filtered.length > 0 ? filtered : all;
     }
     return all;
-  }, [supabase, isOwner, isAdmin, (profile as { pipeline_id?: string | null })?.pipeline_id]);
+  }, [
+    supabase,
+    isOwner,
+    isAdmin,
+    (profile as { pipeline_id?: string | null })?.pipeline_id,
+    (profile as { pipeline_name?: string | null })?.pipeline_name,
+  ]);
 
   const loadStages = useCallback(
     async (pipelineId: string) => {
