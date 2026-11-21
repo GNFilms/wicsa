@@ -473,6 +473,12 @@ export async function sendMessageToConversation(
           )
         : (contentText ?? null);
 
+  const effectiveMediaUrl =
+    mediaUrl ||
+    (templateMessageParams as { headerMediaUrl?: string } | undefined)?.headerMediaUrl ||
+    templateRow?.header_media_url ||
+    null;
+
   const { data: messageRecord, error: msgError } = await db
     .from('messages')
     .insert({
@@ -480,7 +486,7 @@ export async function sendMessageToConversation(
       sender_type: 'agent',
       content_type: messageType,
       content_text: persistedText,
-      media_url: mediaUrl || null,
+      media_url: effectiveMediaUrl,
       template_name: templateName || null,
       interactive_payload:
         messageType === 'interactive' ? interactivePayload : null,

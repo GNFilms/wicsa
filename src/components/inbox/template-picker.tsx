@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { MessageTemplate } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -20,13 +20,21 @@ import {
   ChevronRight,
   LayoutTemplate,
   Loader2,
+  Image as ImageIcon,
+  Video,
+  FileText,
+  UploadCloud,
+  Link as LinkIcon,
 } from "lucide-react";
 import { extractVariableIndices } from "@/lib/whatsapp/template-validators";
+import { uploadAccountMedia } from "@/lib/storage/upload-media";
+import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
 export interface TemplateSendValues {
   body: string[];
   headerText?: string;
+  headerMediaUrl?: string;
   buttonParams?: Record<number, string>;
 }
 
@@ -50,14 +58,22 @@ interface UrlButtonSlot {
   url: string;
 }
 
+const MEDIA_HEADER_TYPES = ["image", "video", "document"] as const;
+type MediaHeaderType = (typeof MEDIA_HEADER_TYPES)[number];
+
+function isMediaHeaderType(val?: string | null): val is MediaHeaderType {
+  return !!val && MEDIA_HEADER_TYPES.includes(val.toLowerCase() as MediaHeaderType);
+}
+
 /**
  * Templates may need values for: body variables, a text-header
- * variable, and per-URL-button suffixes. Collect them all so the
- * send-message path doesn't 400 on missing parameters.
+ * variable, media header link/upload, and per-URL-button suffixes.
  */
 function collectVariableSlots(template: MessageTemplate): {
   bodyVars: number[];
   headerVarCount: number;
+  isMediaHeader: boolean;
+  mediaType: MediaHeaderType | null;
   urlButtonSlots: UrlButtonSlot[];
 } {
   const bodyVars = extractVariableIndices(template.body_text);
@@ -65,13 +81,15 @@ function collectVariableSlots(template: MessageTemplate): {
     template.header_type === "text" && template.header_content
       ? extractVariableIndices(template.header_content).length
       : 0;
+  const isMedia = isMediaHeaderType(template.header_type);
+  const mediaType = isMedia ? (template.header_type!.toLowerCase() as MediaHeaderType) : null;
   const urlButtonSlots: UrlButtonSlot[] = [];
   (template.buttons ?? []).forEach((b, i) => {
     if (b.type === "URL" && extractVariableIndices(b.url).length > 0) {
       urlButtonSlots.push({ index: i, text: b.text, url: b.url });
     }
   });
-  return { bodyVars, headerVarCount, urlButtonSlots };
+  return { bodyVars, headerVarCount, isMediaHeader: isMedia, mediaType, urlButtonSlots };
 }
 
 export function TemplatePicker({
@@ -86,7 +104,10 @@ export function TemplatePicker({
   const [selected, setSelected] = useState<MessageTemplate | null>(null);
   const [params, setParams] = useState<string[]>([]);
   const [headerText, setHeaderText] = useState<string>("");
+  const [headerMediaUrl, setHeaderMediaUrl] = useState<string>("");
+  const [uploadingMedia, setUploadingMedia] = useState(false);
   const [buttonParams, setButtonParams] = useState<Record<number, string>>({});
+  const mediaFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -107,10 +128,6 @@ export function TemplatePicker({
         return;
       }
 
-      // Scope by RLS (message_templates_select → is_account_member), NOT by
-      // user_id. Templates are account-owned, so filtering on the caller's
-      // user_id hid templates that a teammate created — leaving them unable
-      // to send approved templates in a shared account.
       const { data, error } = await supabase
         .from("message_templates")
         .select("*")
@@ -136,6 +153,7 @@ export function TemplatePicker({
     setSelected(null);
     setParams([]);
     setHeaderText("");
+    setHeaderMediaUrl("");
     setButtonParams({});
   }
 
@@ -146,25 +164,45 @@ export function TemplatePicker({
 
   function pickTemplate(template: MessageTemplate) {
     const slots = collectVariableSlots(template);
+    const existingMedia = template.header_media_url || "";
     const noInputsNeeded =
       slots.bodyVars.length === 0 &&
       slots.headerVarCount === 0 &&
+      !slots.isMediaHeader &&
       slots.urlButtonSlots.length === 0;
+
     if (noInputsNeeded) {
       onSelect(template, { body: [] });
       handleOpenChange(false);
       return;
     }
+
     setSelected(template);
     setParams(new Array(slots.bodyVars.length).fill(""));
     setHeaderText("");
+    setHeaderMediaUrl(existingMedia);
     setButtonParams({});
+  }
+
+  async function handleMediaUpload(file: File) {
+    setUploadingMedia(true);
+    try {
+      const { publicUrl } = await uploadAccountMedia("chat-media", file);
+      setHeaderMediaUrl(publicUrl);
+      toast.success("Media uploaded successfully");
+    } catch (err) {
+      console.error("Upload error:", err);
+      toast.error(err instanceof Error ? err.message : "Media upload failed");
+    } finally {
+      setUploadingMedia(false);
+    }
   }
 
   function confirm() {
     if (!selected) return;
     const values: TemplateSendValues = { body: params };
     if (headerText.trim()) values.headerText = headerText.trim();
+    if (headerMediaUrl.trim()) values.headerMediaUrl = headerMediaUrl.trim();
     if (Object.keys(buttonParams).length > 0) {
       values.buttonParams = Object.fromEntries(
         Object.entries(buttonParams).map(([k, v]) => [Number(k), v.trim()]),
@@ -178,18 +216,20 @@ export function TemplatePicker({
     () => (selected ? collectVariableSlots(selected) : null),
     [selected],
   );
+
   const canConfirm =
     !!selected &&
     !!slots &&
     slots.bodyVars.every((_, i) => (params[i] ?? "").trim().length > 0) &&
     (slots.headerVarCount === 0 || headerText.trim().length > 0) &&
+    (!slots.isMediaHeader || headerMediaUrl.trim().length > 0) &&
     slots.urlButtonSlots.every(
       (s) => (buttonParams[s.index] ?? "").trim().length > 0,
     );
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="border-border bg-popover sm:max-w-lg">
+      <DialogContent className="border-border bg-popover sm:max-w-lg max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-popover-foreground">
             <LayoutTemplate className="h-4 w-4 text-primary" />
@@ -232,6 +272,11 @@ export function TemplatePicker({
                         <Badge className="border border-primary/30 bg-primary/20 text-[10px] text-primary">
                           {t.category}
                         </Badge>
+                        {t.header_type && t.header_type !== "none" && (
+                          <Badge variant="outline" className="text-[10px] uppercase font-mono">
+                            {t.header_type}
+                          </Badge>
+                        )}
                         {t.language && (
                           <span className="text-[10px] uppercase text-muted-foreground">
                             {t.language}
@@ -249,7 +294,90 @@ export function TemplatePicker({
             )}
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3.5 overflow-y-auto max-h-[60vh] pr-1">
+            {/* Template Header Media requirement / uploader */}
+            {slots?.isMediaHeader && (
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-primary flex items-center gap-1.5">
+                    {slots.mediaType === "image" && <ImageIcon className="h-4 w-4" />}
+                    {slots.mediaType === "video" && <Video className="h-4 w-4" />}
+                    {slots.mediaType === "document" && <FileText className="h-4 w-4" />}
+                    Header {slots.mediaType?.toUpperCase()} (Required by Meta)
+                  </Label>
+                  <span className="text-[10px] text-muted-foreground">Upload file or paste direct link</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <LinkIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                    <Input
+                      value={headerMediaUrl}
+                      onChange={(e) => setHeaderMediaUrl(e.target.value)}
+                      placeholder={`https://example.com/media.${slots.mediaType === "image" ? "jpg" : slots.mediaType === "video" ? "mp4" : "pdf"}`}
+                      className="border-border bg-background pl-8 text-xs text-foreground"
+                    />
+                  </div>
+                  <input
+                    type="file"
+                    ref={mediaFileInputRef}
+                    className="hidden"
+                    accept={
+                      slots.mediaType === "image"
+                        ? "image/png,image/jpeg,image/webp,image/gif"
+                        : slots.mediaType === "video"
+                        ? "video/mp4,video/3gpp"
+                        : ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
+                    }
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void handleMediaUpload(file);
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={uploadingMedia}
+                    onClick={() => mediaFileInputRef.current?.click()}
+                    className="shrink-0 h-9 gap-1.5 text-xs font-medium border-primary/30 text-primary hover:bg-primary/10"
+                  >
+                    {uploadingMedia ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <UploadCloud className="h-3.5 w-3.5" />
+                    )}
+                    Upload
+                  </Button>
+                </div>
+
+                {/* Media Preview */}
+                {headerMediaUrl.trim() && (
+                  <div className="mt-2 rounded-md border border-border/80 bg-background/80 p-2 flex items-center gap-3">
+                    {slots.mediaType === "image" ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={headerMediaUrl.trim()}
+                        alt="Header preview"
+                        className="h-16 w-20 rounded object-cover border border-border shrink-0"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = "none";
+                        }}
+                      />
+                    ) : (
+                      <div className="h-12 w-12 rounded bg-muted flex items-center justify-center shrink-0">
+                        {slots.mediaType === "video" ? <Video className="h-6 w-6 text-primary" /> : <FileText className="h-6 w-6 text-primary" />}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-foreground truncate">{headerMediaUrl.split("/").pop() || "Media attached"}</p>
+                      <p className="text-[10px] text-emerald-600 font-medium">✓ Ready to send with template</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="rounded-md border border-border bg-background/50 p-3">
               <p className="mb-1 text-xs text-muted-foreground">{t("preview")}</p>
               <p className="whitespace-pre-wrap text-sm text-popover-foreground">
@@ -261,6 +389,7 @@ export function TemplatePicker({
                 </p>
               )}
             </div>
+
             {slots && slots.headerVarCount > 0 && (
               <div className="space-y-1">
                 <Label className="text-xs text-popover-foreground">
@@ -274,6 +403,7 @@ export function TemplatePicker({
                 />
               </div>
             )}
+
             {slots?.bodyVars.map((v, i) => (
               <div key={v} className="space-y-1">
                 <Label className="text-xs text-popover-foreground">{`Body {{${v}}}`}</Label>
@@ -289,6 +419,7 @@ export function TemplatePicker({
                 />
               </div>
             ))}
+
             {slots?.urlButtonSlots.map((slot) => (
               <div key={slot.index} className="space-y-1">
                 <Label className="text-xs text-popover-foreground">
@@ -313,7 +444,7 @@ export function TemplatePicker({
           </div>
         )}
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="gap-2 pt-2 border-t border-border mt-auto">
           {selected ? (
             <>
               <Button

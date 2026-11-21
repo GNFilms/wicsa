@@ -174,6 +174,20 @@ function MessageContent({
             <LayoutTemplate className="h-3 w-3" />
             {t("template")}
           </span>
+
+          {/* Render media attached to template (image, video, document) */}
+          {message.media_url && (
+            <div className="my-1.5 overflow-hidden rounded-lg">
+              {message.media_url.match(/\.(mp4|webm|3gp)(\?|$)/i) ? (
+                <MediaVideoBubble message={message} onOpen={openMedia} t={t} />
+              ) : message.media_url.match(/\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt)(\?|$)/i) ? (
+                <MediaDocumentBubble message={message} t={t} />
+              ) : (
+                <MediaImageBubble message={message} onOpen={openMedia} t={t} />
+              )}
+            </div>
+          )}
+
           {message.content_text ? (
             <p className="mt-1 whitespace-pre-wrap break-words text-sm">
               {message.content_text}
