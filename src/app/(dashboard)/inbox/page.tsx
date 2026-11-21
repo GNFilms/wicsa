@@ -50,6 +50,10 @@ function InboxPageInner() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] =
     useState<Conversation | null>(null);
+  const activeConversationRef = useRef<Conversation | null>(null);
+  useEffect(() => {
+    activeConversationRef.current = activeConversation;
+  }, [activeConversation]);
   const [activeContact, setActiveContact] = useState<Contact | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [whatsappConnected, setWhatsappConnected] = useState<boolean | null>(
@@ -449,9 +453,10 @@ function InboxPageInner() {
         // conversationId didn't change, MessageThread wouldn't
         // refetch. The thread would read "No messages yet" until a
         // full page reload rehydrated state from scratch.
-        if (activeConversation?.id === deepLinkConvId) return;
+        if (activeConversationRef.current?.id === deepLinkConvId) return;
         const match = loaded.find((c) => c.id === deepLinkConvId);
         if (match) {
+          activeConversationRef.current = match;
           setActiveConversation(match);
           setActiveContact(match.contact ?? null);
           setMessages([]);
@@ -475,6 +480,7 @@ function InboxPageInner() {
         autoSelectedForDeepLinkRef.current = `contact-${deepLinkContactId}`;
         const match = loaded.find((c) => c.contact_id === deepLinkContactId);
         if (match) {
+          activeConversationRef.current = match;
           setActiveConversation(match);
           setActiveContact(match.contact ?? null);
           setMessages([]);
@@ -490,6 +496,7 @@ function InboxPageInner() {
             if (data && data.length > 0) {
               const norm = normalizeConversation(data[0]);
               setConversations((prev) => [norm, ...prev]);
+              activeConversationRef.current = norm;
               setActiveConversation(norm);
               setActiveContact(norm.contact ?? null);
               setMessages([]);
@@ -498,7 +505,7 @@ function InboxPageInner() {
         }
       }
     },
-    [deepLinkConvId, deepLinkContactId, activeConversation?.id]
+    [deepLinkConvId, deepLinkContactId]
   );
 
   const handleSelectConversation = useCallback(
@@ -507,19 +514,12 @@ function InboxPageInner() {
       // messages array, but the fetch effect in MessageThread only re-runs
       // when conversationId changes — so messages would stay empty until
       // the user navigated away and back. Bail out early instead.
-      if (activeConversation?.id === conv.id) return;
+      if (activeConversationRef.current?.id === conv.id) return;
+      activeConversationRef.current = conv;
       setActiveConversation(conv);
       setActiveContact(conv.contact ?? null);
       setMessages([]);
-      // Optimistically clear the unread badge for this conv. The
-      // server-side reset is fired by the unread-reset effect inside
-      // MessageThread (which reads activeConversation.unread_count, not
-      // the list copy — so we deliberately leave that intact below to
-      // keep the effect firing), and the realtime UPDATE that comes
-      // back will sync to 0 again as a no-op. Zeroing the list copy
-      // here means the user sees the badge disappear the instant they
-      // click instead of waiting for the round-trip — and it persists
-      // even if the realtime UPDATE is dropped.
+      // Optimistically clear the unread badge for this conv.
       setConversations((prev) =>
         prev.map((c) =>
           c.id === conv.id && c.unread_count > 0
@@ -527,20 +527,16 @@ function InboxPageInner() {
             : c,
         ),
       );
-      // Record the selection on the deep-link ref BEFORE we change the
-      // URL. The router.replace below flips `deepLinkConvId`, which can
-      // in turn cause ConversationList to refetch and eventually call
-      // handleConversationsLoaded again. Without this line, the ref
-      // still points at the previous value, the auto-select block
-      // sees `ref !== deepLinkConvId`, fires a second time, and
-      // clobbers the messages MessageThread just fetched.
       autoSelectedForDeepLinkRef.current = conv.id;
-      // Reflect the selection in the URL so a refresh lands the user
-      // back in the same thread, and so copy-paste links work. Use
-      // replace() to avoid polluting browser history with every click.
-      router.replace(`/inbox?c=${conv.id}`, { scroll: false });
+      // Update browser URL without triggering Next.js routing loops
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        url.searchParams.set("c", conv.id);
+        url.searchParams.delete("contactId");
+        window.history.replaceState(null, "", url.toString());
+      }
     },
-    [activeConversation?.id, router]
+    []
   );
 
   const handleOpenTaskChat = useCallback(
@@ -606,8 +602,22 @@ function InboxPageInner() {
       }
 
       if (task.conversation_id) {
-        router.replace(`/inbox?c=${task.conversation_id}`, { scroll: false });
-        return;
+        try {
+          const supabase = createClient();
+          const { data } = await supabase
+            .from("conversations")
+            .select(CONVERSATION_SELECT)
+            .eq("id", task.conversation_id)
+            .maybeSingle();
+          if (data) {
+            const normalized = normalizeConversation(data);
+            setConversations((prev) => [normalized, ...prev.filter((c) => c.id !== normalized.id)]);
+            handleSelectConversation(normalized);
+            return;
+          }
+        } catch (e) {
+          console.error("Open task chat error:", e);
+        }
       }
 
       toast.info(`Reminder: "${task.title}". No active chat linked yet.`);
@@ -754,20 +764,40 @@ function InboxPageInner() {
         }
       })();
     }
-  }, [deepLinkConvId, deepLinkContactId, conversations, handleSelectConversation]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkConvId, deepLinkContactId]);
 
-  // Mobile "back" — deselect the conversation so the list pane comes
-  // back. Also clears the ?c= param so a refresh lands on the list
-  // instead of re-opening the thread the user just backed out of.
+  // Mobile "back" — deselect the conversation so the list pane comes back.
   const handleCloseConversation = useCallback(() => {
+    activeConversationRef.current = null;
     setActiveConversation(null);
     setActiveContact(null);
     setMessages([]);
-    // Clearing the ref lets the deep-link auto-selector fire again if
-    // the user later visits /inbox?c=<same-id> — desirable UX.
     autoSelectedForDeepLinkRef.current = null;
-    router.replace("/inbox", { scroll: false });
-  }, [router]);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("c");
+      url.searchParams.delete("contactId");
+      window.history.replaceState(null, "", url.toString());
+    }
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const cId = params.get("c");
+      if (cId) {
+        const found = conversations.find((c) => c.id === cId);
+        if (found) {
+          handleSelectConversation(found);
+        }
+      } else {
+        handleCloseConversation();
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [conversations, handleSelectConversation, handleCloseConversation]);
 
 
   const handleMessagesLoaded = useCallback((loaded: Message[]) => {
