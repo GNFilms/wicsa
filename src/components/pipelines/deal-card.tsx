@@ -12,6 +12,7 @@ interface DealCardProps {
   stage: PipelineStage | null;
   onEdit: (deal: Deal) => void;
   isOverlay?: boolean;
+  isHighlighted?: boolean;
 }
 
 function formatDate(dateStr: string) {
@@ -28,7 +29,7 @@ function initials(name?: string, fallback?: string) {
   return source.charAt(0).toUpperCase();
 }
 
-export function DealCard({ deal, stage, onEdit, isOverlay }: DealCardProps) {
+export function DealCard({ deal, stage, onEdit, isOverlay, isHighlighted }: DealCardProps) {
   const router = useRouter();
   const t = useTranslations("Pipelines.card");
   const contactLabel = deal.contact?.name || deal.contact?.phone || t("noContact");
@@ -59,6 +60,7 @@ export function DealCard({ deal, stage, onEdit, isOverlay }: DealCardProps) {
 
   return (
     <button
+      id={`deal-card-${deal.id}`}
       type="button"
       onClick={(e) => {
         // `onClick` still fires after a non-drag tap because the PointerSensor
@@ -70,6 +72,8 @@ export function DealCard({ deal, stage, onEdit, isOverlay }: DealCardProps) {
       className={`group relative w-full cursor-pointer rounded-xl border border-border/50 bg-muted/70 pl-4 pr-3 py-3 text-left shadow-sm transition-all ${
         isOverlay
           ? "shadow-xl"
+          : isHighlighted
+          ? "ring-2 ring-primary ring-offset-2 ring-offset-background shadow-lg scale-[1.01]"
           : "hover:-translate-y-0.5 hover:border-border hover:bg-muted hover:shadow-lg"
       }`}
     >

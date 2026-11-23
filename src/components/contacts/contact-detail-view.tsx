@@ -68,7 +68,7 @@ export function ContactDetailView({
   const t = useTranslations('Contacts.detailView');
   const router = useRouter();
   const supabase = createClient();
-  const { accountId, defaultCurrency } = useAuth();
+  const { accountId, defaultCurrency, profile, isOwner, isAdmin } = useAuth();
 
   const [contact, setContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(false);
@@ -119,6 +119,22 @@ export function ContactDetailView({
   const [dealTitle, setDealTitle] = useState('');
   const [dealValue, setDealValue] = useState('0');
   const [addingPipelineDeal, setAddingPipelineDeal] = useState(false);
+
+  const canAccessPipeline = (pipelineId?: string | null) => {
+    if (!pipelineId) return false;
+    if (isOwner || isAdmin) return true;
+    const assignedId = (profile as { pipeline_id?: string | null })?.pipeline_id;
+    const assignedName = (profile as { pipeline_name?: string | null })?.pipeline_name;
+    if (!assignedId && !assignedName) return true;
+    const allowedIds = assignedId ? assignedId.split(',').map((s) => s.trim()) : [];
+    if (allowedIds.includes(pipelineId)) return true;
+    const pipe = pipelines.find((p) => p.id === pipelineId);
+    if (pipe && assignedName) {
+      const allowedNames = assignedName.split(',').map((s) => s.trim().toLowerCase());
+      if (allowedNames.includes(pipe.name.toLowerCase())) return true;
+    }
+    return false;
+  };
 
   const fetchContact = useCallback(async () => {
     if (!contactId) return;
@@ -1018,17 +1034,31 @@ export function ContactDetailView({
                               deal.currency || defaultCurrency,
                             )}
                           </span>
-                          {deal.status && deal.status !== 'open' && (
-                            <span
-                              className={
-                                deal.status === 'won'
-                                  ? 'text-primary'
-                                  : 'text-red-400'
-                              }
-                            >
-                              {deal.status}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {deal.status && deal.status !== 'open' && (
+                              <span
+                                className={
+                                  deal.status === 'won'
+                                    ? 'text-primary'
+                                    : 'text-red-400'
+                                }
+                              >
+                                {deal.status}
+                              </span>
+                            )}
+                            {canAccessPipeline(deal.pipeline_id) && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 text-[10px] gap-1 px-2 text-primary border-primary/25 hover:bg-primary/10 cursor-pointer"
+                                onClick={() => router.push(`/pipelines?pipelineId=${deal.pipeline_id}&dealId=${deal.id}`)}
+                                title="Open Pipeline & Stage"
+                              >
+                                <GitBranch className="size-2.5" />
+                                <span>Open Pipeline</span>
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))}

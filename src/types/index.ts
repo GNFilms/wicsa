@@ -481,6 +481,10 @@ export interface PipelineStage {
   color: string;
   default_assignee_id?: string | null;
   default_assignee?: Profile | null;
+  is_transfer_stage?: boolean | null;
+  transfer_pipeline_id?: string | null;
+  transfer_stage_id?: string | null;
+  transfer_assignee_id?: string | null;
   created_at: string;
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { addContactTag, deleteContactTag } from "@/lib/contacts/tag-api";
@@ -80,7 +81,8 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
   const tSidebar = useTranslations("Inbox.sidebar");
   const tThread = useTranslations("Inbox.messageThread");
 
-  const { accountId, user, profile } = useAuth();
+  const router = useRouter();
+  const { accountId, user, profile, isOwner, isAdmin } = useAuth();
   const [copied, setCopied] = useState(false);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [notes, setNotes] = useState<ContactNote[]>([]);
@@ -102,6 +104,22 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const [editCustomValues, setEditCustomValues] = useState<Record<string, string>>({});
+
+  const canAccessPipeline = (pipelineId?: string | null) => {
+    if (!pipelineId) return false;
+    if (isOwner || isAdmin) return true;
+    const assignedId = (profile as { pipeline_id?: string | null })?.pipeline_id;
+    const assignedName = (profile as { pipeline_name?: string | null })?.pipeline_name;
+    if (!assignedId && !assignedName) return true;
+    const allowedIds = assignedId ? assignedId.split(",").map((s) => s.trim()) : [];
+    if (allowedIds.includes(pipelineId)) return true;
+    const pipe = pipelines.find((p) => p.id === pipelineId);
+    if (pipe && assignedName) {
+      const allowedNames = assignedName.split(",").map((s) => s.trim().toLowerCase());
+      if (allowedNames.includes(pipe.name.toLowerCase())) return true;
+    }
+    return false;
+  };
 
   // Pipeline shortcuts state
   const [pipelines, setPipelines] = useState<{ id: string; name: string }[]>([]);
@@ -1015,15 +1033,11 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
                     key={deal.id}
                     className="rounded-lg border border-border bg-muted/40 p-2.5 transition-colors hover:border-primary/30"
                   >
-                    <p className="text-xs font-medium text-foreground">{deal.title}</p>
-                    <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
-                      <span className="font-semibold text-foreground">
-                        {deal.currency ?? "₹"}
-                        {deal.value.toLocaleString()}
-                      </span>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-xs font-medium text-foreground">{deal.title}</p>
                       {deal.stage && (
                         <span
-                          className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                          className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
                           style={{
                             backgroundColor: `${deal.stage.color}20`,
                             color: deal.stage.color,
@@ -1031,6 +1045,23 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
                         >
                           {deal.stage.name}
                         </span>
+                      )}
+                    </div>
+                    <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+                      <span className="font-semibold text-foreground">
+                        {deal.currency ?? "₹"}
+                        {deal.value.toLocaleString()}
+                      </span>
+                      {canAccessPipeline(deal.pipeline_id) && (
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/pipelines?pipelineId=${deal.pipeline_id}&dealId=${deal.id}`)}
+                          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10 border border-primary/25 transition-colors cursor-pointer"
+                          title="Open Pipeline & Stage"
+                        >
+                          <GitBranch className="size-2.5" />
+                          <span>Open Pipeline</span>
+                        </button>
                       )}
                     </div>
                   </div>

@@ -17,7 +17,7 @@ import {
 import type { Deal, PipelineStage } from "@/types";
 import { DealCard } from "./deal-card";
 import { Button } from "@/components/ui/button";
-import { Plus, Settings, UserCheck, Copy, ArrowUpDown, Archive, Check } from "lucide-react";
+import { Plus, Settings, UserCheck, Copy, ArrowUpDown, Archive, Check, ArrowRightLeft } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,6 +46,8 @@ interface PipelineBoardProps {
   onDealMoved: (dealId: string, newStageId: string) => void;
   onAddDeal: (stageId: string) => void;
   onEditDeal: (deal: Deal) => void;
+  onStageUpdated?: () => void;
+  highlightedDealId?: string | null;
 }
 
 export function PipelineBoard({
@@ -54,6 +56,8 @@ export function PipelineBoard({
   onDealMoved,
   onAddDeal,
   onEditDeal,
+  onStageUpdated,
+  highlightedDealId,
 }: PipelineBoardProps) {
   const { defaultCurrency } = useAuth();
   const [activeDealId, setActiveDealId] = useState<string | null>(null);
@@ -137,6 +141,8 @@ export function PipelineBoard({
               currency={defaultCurrency}
               onAddDeal={onAddDeal}
               onEditDeal={onEditDeal}
+              onStageUpdated={onStageUpdated}
+              highlightedDealId={highlightedDealId}
             />
           );
         })}
@@ -211,6 +217,8 @@ function StageColumn({
   currency,
   onAddDeal,
   onEditDeal,
+  onStageUpdated,
+  highlightedDealId,
 }: {
   stage: PipelineStage;
   deals: Deal[];
@@ -218,6 +226,8 @@ function StageColumn({
   currency: string;
   onAddDeal: (stageId: string) => void;
   onEditDeal: (deal: Deal) => void;
+  onStageUpdated?: () => void;
+  highlightedDealId?: string | null;
 }) {
   const t = useTranslations("Pipelines.board");
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
@@ -226,10 +236,86 @@ function StageColumn({
   const [currentAssigneeId, setCurrentAssigneeId] = useState<string | null>(stage.default_assignee_id ?? null);
   const [savingAssignee, setSavingAssignee] = useState(false);
 
+  // Bridge / Transfer Stage State
+  const [bridgeModalOpen, setBridgeModalOpen] = useState(false);
+  const [isTransferStage, setIsTransferStage] = useState<boolean>(Boolean(stage.is_transfer_stage));
+  const [transferPipelineId, setTransferPipelineId] = useState<string>(stage.transfer_pipeline_id ?? "");
+  const [transferStageId, setTransferStageId] = useState<string>(stage.transfer_stage_id ?? "");
+  const [transferAssigneeId, setTransferAssigneeId] = useState<string>(stage.transfer_assignee_id ?? "");
+  const [availablePipelines, setAvailablePipelines] = useState<{ id: string; name: string }[]>([]);
+  const [targetPipelineStages, setTargetPipelineStages] = useState<{ id: string; name: string; position: number }[]>([]);
+  const [loadingTargetStages, setLoadingTargetStages] = useState(false);
+  const [savingBridge, setSavingBridge] = useState(false);
+
   const loadProfiles = async () => {
     const supabase = createClient();
     const { data } = await supabase.from("profiles").select("id, user_id, full_name").order("full_name");
     if (data) setProfiles(data);
+  };
+
+  const loadPipelinesForBridge = async () => {
+    const supabase = createClient();
+    const { data } = await supabase.from("pipelines").select("id, name").order("name");
+    if (data) setAvailablePipelines(data);
+    const targetPipe = stage.transfer_pipeline_id || (data && data[0]?.id ? data[0].id : "");
+    if (targetPipe) {
+      void loadStagesForPipeline(targetPipe);
+    }
+  };
+
+  const loadStagesForPipeline = async (pipeId: string) => {
+    if (!pipeId) {
+      setTargetPipelineStages([]);
+      return;
+    }
+    setLoadingTargetStages(true);
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("pipeline_stages")
+      .select("id, name, position")
+      .eq("pipeline_id", pipeId)
+      .order("position");
+    setLoadingTargetStages(false);
+    if (data) {
+      setTargetPipelineStages(data);
+    }
+  };
+
+  const handleTargetPipelineChange = async (pipeId: string) => {
+    setTransferPipelineId(pipeId);
+    setTransferStageId("");
+    await loadStagesForPipeline(pipeId);
+  };
+
+  const handleSaveBridge = async () => {
+    if (isTransferStage && (!transferPipelineId || !transferStageId)) {
+      toast.error("Please select a target pipeline and stage");
+      return;
+    }
+    setSavingBridge(true);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("pipeline_stages")
+      .update({
+        is_transfer_stage: isTransferStage,
+        transfer_pipeline_id: isTransferStage ? transferPipelineId : null,
+        transfer_stage_id: isTransferStage ? transferStageId : null,
+        transfer_assignee_id: isTransferStage && transferAssigneeId ? transferAssigneeId : null,
+      })
+      .eq("id", stage.id);
+
+    setSavingBridge(false);
+    if (error) {
+      toast.error(`Failed to update bridge settings: ${error.message}`);
+    } else {
+      stage.is_transfer_stage = isTransferStage;
+      stage.transfer_pipeline_id = isTransferStage ? transferPipelineId : null;
+      stage.transfer_stage_id = isTransferStage ? transferStageId : null;
+      stage.transfer_assignee_id = isTransferStage && transferAssigneeId ? transferAssigneeId : null;
+      toast.success(isTransferStage ? "Bridge / Auto-transfer enabled for this stage" : "Bridge disabled for this stage");
+      setBridgeModalOpen(false);
+      onStageUpdated?.();
+    }
   };
 
   useEffect(() => {
@@ -269,13 +355,21 @@ function StageColumn({
         style={{ backgroundColor: stage.color }}
       />
       <div className="flex items-center justify-between pt-3">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <h3 className="truncate text-sm font-semibold text-foreground">
-            {stage.name}
-          </h3>
-          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-            {deals.length}
-          </span>
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <h3 className="truncate text-sm font-semibold text-foreground">
+              {stage.name}
+            </h3>
+            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {deals.length}
+            </span>
+          </div>
+          {stage.is_transfer_stage && (
+            <div className="mt-1 flex items-center gap-1 text-[10px] font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full w-fit">
+              <ArrowRightLeft className="size-2.5 shrink-0" />
+              <span>Bridge Stage</span>
+            </div>
+          )}
         </div>
 
         {/* Stage Settings Dropdown (Reference image 5) */}
@@ -285,10 +379,21 @@ function StageColumn({
           >
             <Settings className="h-3.5 w-3.5" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48 bg-popover border-border">
+          <DropdownMenuContent align="end" className="w-52 bg-popover border-border">
             <div className="px-2 py-1.5 text-xs font-semibold text-foreground border-b border-border">
               Stage Actions
             </div>
+            <DropdownMenuItem
+              onClick={() => {
+                void loadProfiles();
+                void loadPipelinesForBridge();
+                setBridgeModalOpen(true);
+              }}
+              className="text-xs gap-2 cursor-pointer font-medium text-emerald-600 dark:text-emerald-400"
+            >
+              <ArrowRightLeft className="h-3.5 w-3.5" />
+              Bridge / Transfer Stage
+            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {
                 void loadProfiles();
@@ -409,6 +514,120 @@ function StageColumn({
         </DialogContent>
       </Dialog>
 
+      {/* Bridge / Transfer Stage Modal */}
+      <Dialog open={bridgeModalOpen} onOpenChange={setBridgeModalOpen}>
+        <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
+              <ArrowRightLeft className="size-4 text-emerald-600 dark:text-emerald-400" />
+              Bridge / Transfer Settings for &quot;{stage.name}&quot;
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2 text-xs">
+            <div className="rounded-lg bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 p-3 text-emerald-800 dark:text-emerald-300">
+              <p className="font-medium flex items-center gap-1.5">
+                <ArrowRightLeft className="size-3.5 shrink-0" />
+                Automatic Pipeline Bridge
+              </p>
+              <p className="mt-1 text-[11px] opacity-90 leading-relaxed">
+                When any deal or task is placed into this stage, it will automatically transfer to the target pipeline, target stage, and next assignee member.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border border-border bg-muted/40 p-3">
+              <div>
+                <Label className="text-xs font-medium text-foreground cursor-pointer">Enable Bridge (Auto-Transfer)</Label>
+                <p className="text-[11px] text-muted-foreground">Auto-moves deals to another pipeline when placed here</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={isTransferStage}
+                onChange={(e) => setIsTransferStage(e.target.checked)}
+                className="h-4 w-4 rounded border-input accent-primary cursor-pointer"
+              />
+            </div>
+
+            {isTransferStage && (
+              <div className="space-y-3 pt-1">
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium text-foreground">
+                    Next Pipeline <span className="text-red-500">*</span>
+                  </Label>
+                  <select
+                    value={transferPipelineId}
+                    onChange={(e) => void handleTargetPipelineChange(e.target.value)}
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="">-- Select Target Pipeline --</option>
+                    {availablePipelines.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} {p.id === stage.pipeline_id ? "(Current Pipeline)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium text-foreground">
+                    Next Stage <span className="text-red-500">*</span>
+                  </Label>
+                  <select
+                    value={transferStageId}
+                    onChange={(e) => setTransferStageId(e.target.value)}
+                    disabled={!transferPipelineId || loadingTargetStages}
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                  >
+                    <option value="">
+                      {loadingTargetStages ? "Loading stages..." : "-- Select Next Stage --"}
+                    </option>
+                    {targetPipelineStages.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium text-foreground">
+                    Next Assignee Member (Optional)
+                  </Label>
+                  <select
+                    value={transferAssigneeId}
+                    onChange={(e) => setTransferAssigneeId(e.target.value)}
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="">-- Keep current assignee --</option>
+                    {profiles.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.full_name || "Team Member"}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-muted-foreground">
+                    When transferred, this team member will automatically be assigned to the lead/deal.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setBridgeModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={savingBridge || (isTransferStage && (!transferPipelineId || !transferStageId))}
+              onClick={handleSaveBridge}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            >
+              {savingBridge ? "Saving..." : "Save Bridge Settings"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div
         ref={setNodeRef}
         className={`mt-3 flex flex-1 flex-col gap-2 rounded-lg transition-all ${
@@ -428,6 +647,7 @@ function StageColumn({
               deal={deal}
               stage={stage}
               onEdit={onEditDeal}
+              isHighlighted={deal.id === highlightedDealId}
             />
           ))
         )}
@@ -450,10 +670,12 @@ function DraggableDealCard({
   deal,
   stage,
   onEdit,
+  isHighlighted,
 }: {
   deal: Deal;
   stage: PipelineStage;
   onEdit: (deal: Deal) => void;
+  isHighlighted?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: deal.id,
@@ -466,7 +688,7 @@ function DraggableDealCard({
       {...attributes}
       style={{ opacity: isDragging ? 0.3 : 1, touchAction: "none" }}
     >
-      <DealCard deal={deal} stage={stage} onEdit={onEdit} />
+      <DealCard deal={deal} stage={stage} onEdit={onEdit} isHighlighted={isHighlighted} />
     </div>
   );
 }

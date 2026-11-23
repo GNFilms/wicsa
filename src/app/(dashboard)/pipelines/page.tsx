@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { Suspense, useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Pipeline, PipelineStage, Deal } from "@/types";
 import { PipelineBoard } from "@/components/pipelines/pipeline-board";
@@ -47,7 +48,25 @@ const SPEC_DEFAULT_STAGES = [
 ];
 
 export default function PipelinesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-64 items-center justify-center text-xs text-muted-foreground">
+          Loading pipelines...
+        </div>
+      }
+    >
+      <PipelinesContent />
+    </Suspense>
+  );
+}
+
+function PipelinesContent() {
   const t = useTranslations("Pipelines.page");
+  const searchParams = useSearchParams();
+  const deepLinkPipelineId = searchParams.get("pipelineId");
+  const deepLinkDealId = searchParams.get("dealId");
+
   const supabase = createClient();
   const canEditSettings = useCan("edit-settings");
   const canCreateDeals = useCan("send-messages");
@@ -181,9 +200,13 @@ export default function PipelinesPage() {
       if (cancelled) return;
       setPipelines(list);
       if (list.length > 0) {
-        setSelectedPipelineId((prev) =>
-          prev && list.some((p: Pipeline) => p.id === prev) ? prev : list[0].id,
-        );
+        if (deepLinkPipelineId && list.some((p: Pipeline) => p.id === deepLinkPipelineId)) {
+          setSelectedPipelineId(deepLinkPipelineId);
+        } else {
+          setSelectedPipelineId((prev) =>
+            prev && list.some((p: Pipeline) => p.id === prev) ? prev : list[0].id,
+          );
+        }
       } else {
         setSelectedPipelineId("");
       }
@@ -192,7 +215,24 @@ export default function PipelinesPage() {
     return () => {
       cancelled = true;
     };
-  }, [loadPipelines, seedDefaultPipeline]);
+  }, [loadPipelines, seedDefaultPipeline, deepLinkPipelineId]);
+
+  // Deep-link sync if query param changes after mount
+  useEffect(() => {
+    if (deepLinkPipelineId && pipelines.some((p) => p.id === deepLinkPipelineId)) {
+      setSelectedPipelineId(deepLinkPipelineId);
+    }
+  }, [deepLinkPipelineId, pipelines]);
+
+  // Deep-link scroll/highlight deal
+  useEffect(() => {
+    if (deepLinkDealId && deals.length > 0) {
+      const el = document.getElementById(`deal-card-${deepLinkDealId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+  }, [deepLinkDealId, deals]);
 
   // Load stages + deals whenever selected pipeline changes.
   // Clearing on no-selection is a legitimate sync with URL/prop
@@ -262,12 +302,93 @@ export default function PipelinesPage() {
 
   const handleDealMoved = useCallback(
     async (dealId: string, newStageId: string) => {
-      // Optimistic update — board already animated; just persist.
+      const targetStage = stages.find((s) => s.id === newStageId);
+
+      // Check if target stage is a Bridge / Transfer Stage
+      if (
+        targetStage?.is_transfer_stage &&
+        targetStage?.transfer_pipeline_id &&
+        targetStage?.transfer_stage_id
+      ) {
+        const targetPipeId = targetStage.transfer_pipeline_id;
+        const targetStgId = targetStage.transfer_stage_id;
+        const targetAssigneeId = targetStage.transfer_assignee_id;
+
+        // Optimistically remove from current pipeline deals board
+        setDeals((prev) => prev.filter((d) => d.id !== dealId));
+
+        const updatePayload: Record<string, unknown> = {
+          pipeline_id: targetPipeId,
+          stage_id: targetStgId,
+        };
+        if (targetAssigneeId) {
+          updatePayload.assigned_to = targetAssigneeId;
+        }
+
+        const { error } = await supabase
+          .from("deals")
+          .update(updatePayload)
+          .eq("id", dealId);
+
+        if (error) {
+          toast.error("Failed to transfer deal to target pipeline");
+          refreshDeals();
+          return;
+        }
+
+        // Fetch target pipeline & stage names for toast notification
+        const [{ data: targetPipe }, { data: targetStg }] = await Promise.all([
+          supabase.from("pipelines").select("name").eq("id", targetPipeId).maybeSingle(),
+          supabase.from("pipeline_stages").select("name").eq("id", targetStgId).maybeSingle(),
+        ]);
+        const targetPipeName = targetPipe?.name || "Target Pipeline";
+        const targetStgName = targetStg?.name || "Target Stage";
+
+        toast.success(`🚀 Deal transferred to ${targetPipeName} › ${targetStgName}!`);
+
+        // Record transfer activity
+        const movedDeal = deals.find((d) => d.id === dealId);
+        fetch("/api/deals/activities", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            deal_id: dealId,
+            user_id: profile?.user_id,
+            account_id: accountId,
+            activity_type: "pipeline_transfer",
+            actor_name: profile?.full_name || "Team Member",
+            details: {
+              from_pipeline_id: selectedPipelineId,
+              to_pipeline_id: targetPipeId,
+              to_pipeline_name: targetPipeName,
+              to_stage_name: targetStgName,
+            },
+          }),
+        }).catch(console.error);
+
+        // Auto-assign linked conversation if transfer assignee is specified
+        if (targetAssigneeId && movedDeal?.contact_id) {
+          const { data: assigneeProfile } = await supabase
+            .from("profiles")
+            .select("user_id")
+            .eq("id", targetAssigneeId)
+            .maybeSingle();
+
+          if (assigneeProfile?.user_id) {
+            await supabase
+              .from("conversations")
+              .update({ assigned_agent_id: assigneeProfile.user_id })
+              .eq("contact_id", movedDeal.contact_id);
+          }
+        }
+        return;
+      }
+
+      // Normal stage move: optimistic update — board already animated; just persist.
       setDeals((prev) =>
         prev.map((d) => (d.id === dealId ? { ...d, stage_id: newStageId } : d)),
       );
 
-      const targetStage = stages.find((s) => s.id === newStageId);
       const updatePayload: Record<string, unknown> = { stage_id: newStageId };
       if (targetStage?.default_assignee_id) {
         updatePayload.assigned_to = targetStage.default_assignee_id;
@@ -320,7 +441,7 @@ export default function PipelinesPage() {
         }
       }
     },
-    [supabase, refreshDeals, t, stages, deals],
+    [supabase, refreshDeals, t, stages, deals, profile, accountId, selectedPipelineId],
   );
 
   const handleAddDeal = useCallback(
@@ -679,6 +800,8 @@ export default function PipelinesPage() {
             onDealMoved={handleDealMoved}
             onAddDeal={handleAddDeal}
             onEditDeal={handleEditDeal}
+            onStageUpdated={refreshStages}
+            highlightedDealId={deepLinkDealId}
           />
         </>
       )}
