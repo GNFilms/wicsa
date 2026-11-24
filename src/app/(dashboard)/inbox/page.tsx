@@ -125,6 +125,7 @@ function InboxPageInner() {
   // list refreshes or user clicks will NEVER snap the user back to the old
   // deep-linked conversation.
   const initialDeepLinkHandledRef = useRef<boolean>(false);
+  const autoSelectedForDeepLinkRef = useRef<string | null>(null);
 
   // Tracks conversations whose hydrate fetch is currently in flight. The
   // conv-INSERT and the first-message-INSERT events both call into

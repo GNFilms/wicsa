@@ -400,6 +400,7 @@ function NodeCard({
   onUpdate,
   onUpdateConfig,
   onRemove,
+  onDuplicate,
   onSetEntry,
   t,
 }: {

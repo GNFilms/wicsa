@@ -541,15 +541,6 @@ export function FlowEditorProvider({
         // Deep clone config
         const clonedConfig = JSON.parse(JSON.stringify(sourceNode.config || {}));
 
-        // Offset position if available so duplicate doesn't hide underneath
-        const newPositions = s.positions ? { ...s.positions } : {};
-        if (newPositions[key]) {
-          newPositions[node_key] = {
-            x: (newPositions[key].x || 0) + 40,
-            y: (newPositions[key].y || 0) + 80,
-          };
-        }
-
         const duplicated: BuilderNode = {
           node_key,
           node_type: sourceNode.node_type,
@@ -559,7 +550,6 @@ export function FlowEditorProvider({
         return {
           ...s,
           nodes: [...s.nodes, duplicated],
-          positions: newPositions,
         };
       });
       return createdKey;
