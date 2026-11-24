@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   DndContext,
   DragOverlay,
@@ -17,7 +18,7 @@ import {
 import type { Deal, PipelineStage } from "@/types";
 import { DealCard } from "./deal-card";
 import { Button } from "@/components/ui/button";
-import { Plus, Settings, UserCheck, Copy, ArrowUpDown, Archive, Check, ArrowRightLeft } from "lucide-react";
+import { Plus, Settings, UserCheck, Copy, ArrowUpDown, Archive, Check, ArrowRightLeft, History, ExternalLink, Loader2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -237,6 +238,7 @@ function StageColumn({
   const [savingAssignee, setSavingAssignee] = useState(false);
 
   // Bridge / Transfer Stage State
+  const router = useRouter();
   const [bridgeModalOpen, setBridgeModalOpen] = useState(false);
   const [isTransferStage, setIsTransferStage] = useState<boolean>(Boolean(stage.is_transfer_stage));
   const [transferPipelineId, setTransferPipelineId] = useState<string>(stage.transfer_pipeline_id ?? "");
@@ -246,6 +248,35 @@ function StageColumn({
   const [targetPipelineStages, setTargetPipelineStages] = useState<{ id: string; name: string; position: number }[]>([]);
   const [loadingTargetStages, setLoadingTargetStages] = useState(false);
   const [savingBridge, setSavingBridge] = useState(false);
+
+  // Transfer History State
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [transferHistory, setTransferHistory] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const loadStageTransferHistory = async () => {
+    setLoadingHistory(true);
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("deal_activities")
+      .select("id, deal_id, activity_type, actor_name, details, created_at")
+      .eq("activity_type", "pipeline_transfer")
+      .order("created_at", { ascending: false })
+      .limit(60);
+
+    setLoadingHistory(false);
+    if (data) {
+      const filtered = data.filter((act) => {
+        const fromStageId = act.details?.from_stage_id;
+        const fromStageName = act.details?.from_stage_name;
+        return (
+          fromStageId === stage.id ||
+          fromStageName?.toLowerCase() === stage.name.toLowerCase()
+        );
+      });
+      setTransferHistory(filtered);
+    }
+  };
 
   const loadProfiles = async () => {
     const supabase = createClient();
@@ -365,9 +396,23 @@ function StageColumn({
             </span>
           </div>
           {stage.is_transfer_stage && (
-            <div className="mt-1 flex items-center gap-1 text-[10px] font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full w-fit">
-              <ArrowRightLeft className="size-2.5 shrink-0" />
-              <span>Bridge Stage</span>
+            <div className="mt-1 flex items-center gap-1.5">
+              <div className="flex items-center gap-1 text-[10px] font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full w-fit">
+                <ArrowRightLeft className="size-2.5 shrink-0" />
+                <span>Bridge Stage</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  void loadStageTransferHistory();
+                  setHistoryModalOpen(true);
+                }}
+                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground font-medium px-1.5 py-0.5 rounded hover:bg-muted transition-colors cursor-pointer"
+                title="View transferred leads history from this stage"
+              >
+                <History className="size-2.5" />
+                <span>History</span>
+              </button>
             </div>
           )}
         </div>
@@ -393,6 +438,16 @@ function StageColumn({
             >
               <ArrowRightLeft className="h-3.5 w-3.5" />
               Bridge / Transfer Stage
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                void loadStageTransferHistory();
+                setHistoryModalOpen(true);
+              }}
+              className="text-xs gap-2 cursor-pointer font-medium text-foreground"
+            >
+              <History className="h-3.5 w-3.5 text-primary" />
+              Transfer History
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {
@@ -623,6 +678,88 @@ function StageColumn({
               className="bg-primary hover:bg-primary/90 text-primary-foreground"
             >
               {savingBridge ? "Saving..." : "Save Bridge Settings"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Transferred Leads History Modal */}
+      <Dialog open={historyModalOpen} onOpenChange={setHistoryModalOpen}>
+        <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
+              <History className="size-4 text-primary" />
+              Transferred Leads History: &quot;{stage.name}&quot;
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2 text-xs">
+            <p className="text-xs text-muted-foreground">
+              History of all leads transferred from this stage to other pipelines. Each entry contains a direct link to open that lead in its new pipeline.
+            </p>
+
+            {loadingHistory ? (
+              <div className="flex items-center justify-center py-8 text-muted-foreground gap-2">
+                <Loader2 className="size-4 animate-spin text-primary" />
+                <span>Loading transfer history...</span>
+              </div>
+            ) : transferHistory.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border py-8 text-center text-muted-foreground">
+                No leads transferred from this stage yet.
+              </div>
+            ) : (
+              <div className="max-h-[360px] overflow-y-auto space-y-2 pr-1">
+                {transferHistory.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 p-3 hover:bg-muted/70 transition-colors"
+                  >
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-foreground truncate">
+                          {item.details?.deal_title || "Transferred Lead"}
+                        </span>
+                        {item.details?.contact_name && (
+                          <span className="text-[11px] text-muted-foreground truncate">
+                            ({item.details.contact_name})
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <span>Destination:</span>
+                        <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                          {item.details?.to_pipeline_name || "Target Pipeline"} › {item.details?.to_stage_name || "Target Stage"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                        <span>By {item.actor_name || "Team Member"}</span>
+                        {item.details?.to_assignee_name && (
+                          <span>Assigned to {item.details.to_assignee_name}</span>
+                        )}
+                        <span>{new Date(item.created_at).toLocaleString()}</span>
+                      </div>
+                    </div>
+
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0 h-7 text-[11px] gap-1 px-2.5 text-primary border-primary/30 hover:bg-primary/10 cursor-pointer"
+                      onClick={() => {
+                        setHistoryModalOpen(false);
+                        const targetUrl = `/pipelines?pipelineId=${item.details?.to_pipeline_id}&dealId=${item.deal_id}`;
+                        router.push(targetUrl);
+                      }}
+                    >
+                      <ExternalLink className="size-3" />
+                      <span>Open Lead</span>
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setHistoryModalOpen(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

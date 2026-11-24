@@ -11,87 +11,55 @@
  */
 
 /** App-wide fallback when no account/deal currency is available. */
-export const DEFAULT_CURRENCY = "USD";
+export const DEFAULT_CURRENCY = "INR";
 
 export interface CurrencyOption {
-  /** ISO-4217 code, e.g. "USD". Stored verbatim in the DB. */
+  /** ISO-4217 code, e.g. "INR". Stored verbatim in the DB. */
   code: string;
-  /** Human label for the dropdown, e.g. "US Dollar". */
+  /** Human label for the dropdown, e.g. "Indian Rupee". */
   label: string;
-  /** Symbol for compact display, e.g. "$". */
+  /** Symbol for compact display, e.g. "₹". */
   symbol: string;
 }
 
 /**
- * The currencies offered in pickers. Codes must be valid ISO-4217 so
- * `Intl.NumberFormat` renders the right symbol/grouping. Extend this
- * list to offer more — nothing else needs to change.
+ * Currency configuration. Locked exclusively to INR (Indian Rupee - ₹).
  */
 export const CURRENCIES: CurrencyOption[] = [
-  { code: "USD", label: "US Dollar", symbol: "$" },
-  { code: "EUR", label: "Euro", symbol: "€" },
-  { code: "GBP", label: "British Pound", symbol: "£" },
-  { code: "INR", label: "Indian Rupee", symbol: "₹" },
-  { code: "AUD", label: "Australian Dollar", symbol: "A$" },
-  { code: "CAD", label: "Canadian Dollar", symbol: "C$" },
-  { code: "BRL", label: "Brazilian Real", symbol: "R$" },
-  { code: "JPY", label: "Japanese Yen", symbol: "¥" },
-  { code: "CNY", label: "Chinese Yuan", symbol: "¥" },
-  { code: "AED", label: "UAE Dirham", symbol: "د.إ" },
-  { code: "ZAR", label: "South African Rand", symbol: "R" },
-  { code: "NGN", label: "Nigerian Naira", symbol: "₦" },
-  { code: "SGD", label: "Singapore Dollar", symbol: "S$" },
-  { code: "MXN", label: "Mexican Peso", symbol: "$" },
-  { code: "COP", label: "Colombian Peso", symbol: "$" },
+  { code: "INR", label: "INR - Indian Rupee", symbol: "₹" },
 ];
 
 /**
- * Format a deal value as a currency string. Whole-number output
- * (no minor units) — deal values are tracked to the dollar across
- * the app. `currency` defaults to USD so callers with nothing better
- * stay safe, but pass the account/deal currency wherever known.
- *
- * Total by design: `Intl.NumberFormat` throws a RangeError on a
- * structurally invalid currency code, and `deals.currency` carries
- * NO DB CHECK (only `accounts.default_currency` does), so legacy
- * rows, imports, or hand-edited data can hold malformed values like
- * "United States". We never let that crash a render — on a bad code
- * we fall back to "CODE 1,234".
+ * Format a deal value as an Indian Rupee (INR - ₹) currency string.
+ * The workspace is strictly locked to INR as requested.
+ * Automatically formats using Indian numbering system (e.g. ₹1,00,000 or ₹0).
  */
 export function formatCurrency(
   value: number,
-  currency: string = DEFAULT_CURRENCY,
+  _currency: string = DEFAULT_CURRENCY,
 ): string {
-  const code = (currency || DEFAULT_CURRENCY).trim();
   const amount = Number(value) || 0;
   try {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat("en-IN", {
       style: "currency",
-      currency: code,
+      currency: "INR",
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(amount);
   } catch {
-    // Invalid ISO code — show the raw code + grouped number so the
-    // value is still legible instead of throwing.
-    return `${code} ${new Intl.NumberFormat(undefined, {
-      maximumFractionDigits: 0,
-    }).format(amount)}`;
+    return `₹${amount.toLocaleString("en-IN")}`;
   }
 }
 
 /**
- * Compact currency for tight spaces (donut center, legend rows):
- * "$1.2M" / "€34.5k" / "₹900". Uses the currency's symbol from
- * CURRENCIES, falling back to the code when we don't carry a symbol.
+ * Compact currency for tight spaces (donut center, legend rows, badges):
+ * "₹1.2M" / "₹34.5k" / "₹900". Strictly locked to INR (₹).
  */
 export function formatCurrencyShort(
   value: number,
-  currency: string = DEFAULT_CURRENCY,
+  _currency: string = DEFAULT_CURRENCY,
 ): string {
-  const code = currency || DEFAULT_CURRENCY;
-  const symbol = CURRENCIES.find((c) => c.code === code)?.symbol ?? `${code} `;
-  return `${symbol}${formatCompactNumber(value)}`;
+  return `₹${formatCompactNumber(value)}`;
 }
 
 /**

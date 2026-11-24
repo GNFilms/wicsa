@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Sparkles, CheckCircle2, Trash2, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Sparkles, CheckCircle2, Trash2, Eye, EyeOff, Power, BookOpen, Lightbulb, Check } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { canEditSettings } from '@/lib/auth/roles';
 import { Button } from '@/components/ui/button';
@@ -382,22 +382,120 @@ export function AiConfig() {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t('behaviour')}</CardTitle>
-            <CardDescription>
-              {t('behaviourDesc')}
-            </CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <BookOpen className="h-4 w-4 text-primary" /> Training, Guidelines & Conversation Observation
+              </CardTitle>
+              <CardDescription>
+                Train your OpenAI model on your business knowledge, observe past chat context, and configure rules.
+              </CardDescription>
+            </div>
+            {canEdit && (
+              <Button
+                type="button"
+                size="sm"
+                variant={isActive && autoReplyEnabled ? 'destructive' : 'default'}
+                onClick={() => {
+                  const next = !(isActive && autoReplyEnabled);
+                  setIsActive(next);
+                  setAutoReplyEnabled(next);
+                }}
+                className="gap-1.5 font-medium text-xs shadow-xs"
+              >
+                <Power className="h-3.5 w-3.5" />
+                {isActive && autoReplyEnabled ? 'Deactivate Agent' : 'Activate Agent'}
+              </Button>
+            )}
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Quick Training Presets */}
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-3.5 space-y-2.5">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-primary">
+                <Lightbulb className="h-3.5 w-3.5" />
+                <span>Quick Agency Training Presets (Click to Load Prompt & Rules)</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSystemPrompt(
+                      `You are the official AI Assistant for "Good News Films" (Audio & Video Advertisement Production Studio).\n` +
+                      `Language Style: Friendly, natural Indian Hinglish (or Hindi/English based on customer's message).\n\n` +
+                      `KEY BUSINESS RULES & KNOWLEDGE:\n` +
+                      `1. GREETING: Namaste! Warmly welcome the customer to Good News Films.\n` +
+                      `2. REQUIREMENTS: Ask for their shop/business visiting card, pamphlet, or poster so our creative team can prepare custom audio/video samples.\n` +
+                      `3. SERVICES: Commercial audio ads for WhatsApp/Facebook/Instagram, vehicle loudspeaker announcements, FM quality studio ads, and promotional video reels.\n` +
+                      `4. PRICING: Inform them that standard promo audio starts from ₹499 - ₹1,499. For customized video shoots or multi-voice scripts, offer to connect with our manager.\n` +
+                      `5. VISITING CARD REQUEST: If they haven't sent a visiting card or pamphlet yet, politely ask: "Kripya apne business ka visiting card ya pamphlet yahan share karein taaki hum aapke liye demo ready kar sakein."\n` +
+                      `6. DO NOT make up non-existent offers or give random discounts. Always maintain professional and polite communication.`
+                    );
+                    toast.success("Loaded Good News Films Training Preset!");
+                  }}
+                  className="text-xs h-7 border-primary/30 hover:bg-primary/10"
+                >
+                  🎬 Good News Films (Audio/Video Production)
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSystemPrompt(
+                      `You are an AI Lead Qualification Assistant for a Real Estate & Property Consultant.\n` +
+                      `Language Style: Polite, professional Hinglish / English.\n\n` +
+                      `KEY BUSINESS RULES:\n` +
+                      `1. Ask if they are looking to BUY, SELL, or RENT a property.\n` +
+                      `2. Ask for their preferred location / city and budget range in INR (₹).\n` +
+                      `3. Ask for their full name and convenient time for a site visit or call.\n` +
+                      `4. Do not commit on property legal status; schedule a discussion with our relationship manager.`
+                    );
+                    toast.success("Loaded Real Estate Consultant Preset!");
+                  }}
+                  className="text-xs h-7 border-border hover:bg-muted"
+                >
+                  🏢 Real Estate & Property
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSystemPrompt(
+                      `You are a polite customer support and sales assistant.\n` +
+                      `Answer customer queries based strictly on verified business details.\n` +
+                      `If the customer asks for a human agent or has a complex custom request, acknowledge politely and state that a team member is reviewing their chat.`
+                    );
+                    toast.success("Loaded General Support Preset!");
+                  }}
+                  className="text-xs h-7 border-border hover:bg-muted"
+                >
+                  💬 General Sales & Support
+                </Button>
+              </div>
+            </div>
+
             <div className="space-y-2">
-              <Label htmlFor="ai-prompt">{t('businessContext')}</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="ai-prompt" className="font-semibold text-foreground">
+                  System Prompt & Business Instructions
+                </Label>
+                <span className="text-xs text-muted-foreground">
+                  OpenAI models follow these instructions strictly
+                </span>
+              </div>
               <Textarea
                 id="ai-prompt"
                 value={systemPrompt}
                 onChange={(e) => setSystemPrompt(e.target.value)}
-                placeholder={t('promptPlaceholder')}
-                rows={5}
+                placeholder="Enter system prompt, pricing details, services, address, and response guidelines..."
+                rows={8}
                 disabled={disabled}
+                className="font-mono text-xs leading-relaxed"
               />
             </div>
 

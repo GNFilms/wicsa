@@ -95,6 +95,7 @@ export interface FlowEditorContextValue {
   // (a NodeCard "Add" button or canvas "+" button) can scroll to /
   // focus / open the new node.
   addNode: (type: NodeType) => string;
+  duplicateNode: (key: string) => string;
   updateNode: (key: string, patch: Partial<BuilderNode>) => void;
   updateNodeConfig: (key: string, patch: Record<string, unknown>) => void;
   updateNodePosition: (key: string, x: number, y: number) => void;
@@ -525,6 +526,47 @@ export function FlowEditorProvider({
     [setState],
   );
 
+  const duplicateNode = useCallback(
+    (key: string): string => {
+      let createdKey = "";
+      setState((s) => {
+        const sourceNode = s.nodes.find((n) => n.node_key === key);
+        if (!sourceNode) return s;
+
+        const meta = NODE_META[sourceNode.node_type];
+        const base = slugify(meta.slugSeed, sourceNode.node_type);
+        const node_key = uniqueNodeKey(base, s.nodes);
+        createdKey = node_key;
+
+        // Deep clone config
+        const clonedConfig = JSON.parse(JSON.stringify(sourceNode.config || {}));
+
+        // Offset position if available so duplicate doesn't hide underneath
+        const newPositions = s.positions ? { ...s.positions } : {};
+        if (newPositions[key]) {
+          newPositions[node_key] = {
+            x: (newPositions[key].x || 0) + 40,
+            y: (newPositions[key].y || 0) + 80,
+          };
+        }
+
+        const duplicated: BuilderNode = {
+          node_key,
+          node_type: sourceNode.node_type,
+          config: clonedConfig,
+        };
+
+        return {
+          ...s,
+          nodes: [...s.nodes, duplicated],
+          positions: newPositions,
+        };
+      });
+      return createdKey;
+    },
+    [setState],
+  );
+
   const removeNode = useCallback(
     (key: string) => {
       // Auto-unlink inbound references so canvas / list deletes don't
@@ -554,6 +596,7 @@ export function FlowEditorProvider({
       issues,
       canActivate,
       addNode,
+      duplicateNode,
       updateNode,
       updateNodeConfig,
       updateNodePosition,
@@ -575,6 +618,7 @@ export function FlowEditorProvider({
       issues,
       canActivate,
       addNode,
+      duplicateNode,
       updateNode,
       updateNodeConfig,
       updateNodePosition,

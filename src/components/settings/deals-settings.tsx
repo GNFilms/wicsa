@@ -86,43 +86,21 @@ export function DealsSettings() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-2 sm:max-w-xs">
-            <Label className="text-muted-foreground">{t("currencyLabel")}</Label>
-            <select
-              value={selected}
-              onChange={(e) => setSelected(e.target.value)}
-              disabled={!canEditSettings || profileLoading}
-              className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {CURRENCIES.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.code} — {c.label}
-                </option>
-              ))}
-            </select>
-            {!canEditSettings && (
-              <p className="text-xs text-muted-foreground">
-                {t("adminOnlyHint")}
-              </p>
-            )}
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary">
+                ₹
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-foreground">
+                  Indian Rupee (INR - ₹)
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Workspace standard currency. All pipeline deals, values, and revenue analytics are locked exclusively to INR.
+                </p>
+              </div>
+            </div>
           </div>
-
-          {canEditSettings && (
-            <Button
-              onClick={handleSave}
-              disabled={saving || !dirty}
-              className="bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" />
-                  {t("saving")}
-                </>
-              ) : (
-                t("save")
-              )}
-            </Button>
-          )}
         </CardContent>
       </Card>
     </section>

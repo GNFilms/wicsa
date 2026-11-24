@@ -77,21 +77,44 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') return bad('Invalid request body')
 
-    const provider = body.provider as AiProvider
+    // Fetch existing config early so partial updates (e.g. toggling active/deactive) work cleanly
+    const { data: existing } = await supabase
+      .from('ai_configs')
+      .select('id, provider, model, api_key, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, handoff_agent_id')
+      .eq('account_id', accountId)
+      .maybeSingle()
+
+    const provider = (body.provider as AiProvider) || existing?.provider || 'openai'
     if (provider !== 'openai' && provider !== 'anthropic') {
       return bad('provider must be "openai" or "anthropic"')
     }
-    const model = typeof body.model === 'string' ? body.model.trim() : ''
+    const model =
+      typeof body.model === 'string' && body.model.trim()
+        ? body.model.trim()
+        : existing?.model || 'gpt-4o-mini'
     if (!model) return bad('model is required')
 
     const systemPrompt =
-      typeof body.system_prompt === 'string' && body.system_prompt.trim()
-        ? body.system_prompt.trim()
-        : null
-    const isActive = body.is_active === true
-    const autoReplyEnabled = body.auto_reply_enabled === true
+      'system_prompt' in body
+        ? typeof body.system_prompt === 'string' && body.system_prompt.trim()
+          ? body.system_prompt.trim()
+          : null
+        : existing?.system_prompt ?? null
 
-    let maxPer = Number(body.auto_reply_max_per_conversation)
+    const isActive =
+      'is_active' in body
+        ? body.is_active === true
+        : existing?.is_active ?? false
+
+    const autoReplyEnabled =
+      'auto_reply_enabled' in body
+        ? body.auto_reply_enabled === true
+        : existing?.auto_reply_enabled ?? false
+
+    let maxPer =
+      'auto_reply_max_per_conversation' in body
+        ? Number(body.auto_reply_max_per_conversation)
+        : existing?.auto_reply_max_per_conversation ?? 3
     if (!Number.isFinite(maxPer)) maxPer = 3
     maxPer = Math.min(20, Math.max(1, Math.floor(maxPer)))
 
@@ -112,6 +135,8 @@ export async function POST(request: Request) {
         .maybeSingle()
       if (!member) return bad('handoff_agent_id must be a member of this account')
       handoffAgentId = rawHandoff
+    } else if (!handoffProvided && existing) {
+      handoffAgentId = existing.handoff_agent_id ?? null
     }
 
     const rawKey = typeof body.api_key === 'string' ? body.api_key.trim() : ''
@@ -124,13 +149,6 @@ export async function POST(request: Request) {
         ? body.embeddings_api_key.trim()
         : ''
     const clearEmbeddingsKey = body.embeddings_api_key === null
-
-    // Reuse the stored key when the form didn't send a fresh one.
-    const { data: existing } = await supabase
-      .from('ai_configs')
-      .select('id, provider, model, api_key')
-      .eq('account_id', accountId)
-      .maybeSingle()
 
     let apiKeyPlain: string
     if (rawKey) {

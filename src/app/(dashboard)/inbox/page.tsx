@@ -120,11 +120,11 @@ function InboxPageInner() {
     fetchUpcomingTasks();
   }, [fetchUpcomingTasks, resyncToken]);
 
-  // Fire the deep-link auto-select exactly once per URL — subsequent
-  // list refreshes (realtime, manual refetch) must not snap the user
-  // back to the deep-linked conversation if they've already clicked
-  // elsewhere.
-  const autoSelectedForDeepLinkRef = useRef<string | null>(null);
+  // Tracks whether the initial deep-link (?c=<id> or ?contactId=<id>) has
+  // already been resolved and selected on page load. Once true, subsequent
+  // list refreshes or user clicks will NEVER snap the user back to the old
+  // deep-linked conversation.
+  const initialDeepLinkHandledRef = useRef<boolean>(false);
 
   // Tracks conversations whose hydrate fetch is currently in flight. The
   // conv-INSERT and the first-message-INSERT events both call into
@@ -433,75 +433,52 @@ function InboxPageInner() {
   const handleConversationsLoaded = useCallback(
     (loaded: Conversation[]) => {
       setConversations(loaded);
-      // Resolve a pending deep-link here rather than in an effect — this
-      // is an event handler, so the setState calls below are allowed by
-      // react-hooks/set-state-in-effect. Runs once per ?c=<id> URL value
-      // via the ref, so realtime refreshes of the list can't snap the
-      // user back to the deep-linked thread after they've navigated.
-      if (
-        deepLinkConvId &&
-        autoSelectedForDeepLinkRef.current !== deepLinkConvId &&
-        loaded.length > 0
-      ) {
-        autoSelectedForDeepLinkRef.current = deepLinkConvId;
-        // If the deep-linked conversation is already the active one
-        // (e.g. because the user clicked it in the list and we
-        // router.replace()'d the URL, which made the ConversationList
-        // refetch and land us back here), do NOT re-apply it. Doing so
-        // would setMessages([]) on a thread whose messages have
-        // already been loaded by MessageThread — and because
-        // conversationId didn't change, MessageThread wouldn't
-        // refetch. The thread would read "No messages yet" until a
-        // full page reload rehydrated state from scratch.
-        if (activeConversationRef.current?.id === deepLinkConvId) return;
-        const match = loaded.find((c) => c.id === deepLinkConvId);
-        if (match) {
-          activeConversationRef.current = match;
-          setActiveConversation(match);
-          setActiveContact(match.contact ?? null);
-          setMessages([]);
-          // Mirror the optimistic unread reset that handleSelectConversation
-          // does — the user just deep-linked into this conv, treat that the
-          // same as a click. Leaves activeConversation.unread_count alone so
-          // the MessageThread reset effect still fires the server UPDATE.
-          if (match.unread_count > 0) {
-            setConversations((prev) =>
-              prev.map((c) =>
-                c.id === match.id ? { ...c, unread_count: 0 } : c,
-              ),
-            );
-          }
-        }
-      } else if (
-        deepLinkContactId &&
-        autoSelectedForDeepLinkRef.current !== `contact-${deepLinkContactId}` &&
-        loaded.length > 0
-      ) {
-        autoSelectedForDeepLinkRef.current = `contact-${deepLinkContactId}`;
-        const match = loaded.find((c) => c.contact_id === deepLinkContactId);
-        if (match) {
-          activeConversationRef.current = match;
-          setActiveConversation(match);
-          setActiveContact(match.contact ?? null);
-          setMessages([]);
-        } else {
-          // Query DB for conversation with this contact_id
-          (async () => {
-            const supabase = createClient();
-            const { data } = await supabase
-              .from("conversations")
-              .select(CONVERSATION_SELECT)
-              .eq("contact_id", deepLinkContactId)
-              .limit(1);
-            if (data && data.length > 0) {
-              const norm = normalizeConversation(data[0]);
-              setConversations((prev) => [norm, ...prev]);
-              activeConversationRef.current = norm;
-              setActiveConversation(norm);
-              setActiveContact(norm.contact ?? null);
-              setMessages([]);
+      // Resolve an initial deep-link (?c=<id> or ?contactId=<id>) ONLY once on initial mount.
+      // Once handled or if the user clicks any chat, it NEVER overrides the active thread.
+      if (!initialDeepLinkHandledRef.current && loaded.length > 0) {
+        if (deepLinkConvId) {
+          initialDeepLinkHandledRef.current = true;
+          const match = loaded.find((c) => c.id === deepLinkConvId);
+          if (match && activeConversationRef.current?.id !== deepLinkConvId) {
+            activeConversationRef.current = match;
+            setActiveConversation(match);
+            setActiveContact(match.contact ?? null);
+            setMessages([]);
+            if (match.unread_count > 0) {
+              setConversations((prev) =>
+                prev.map((c) =>
+                  c.id === match.id ? { ...c, unread_count: 0 } : c,
+                ),
+              );
             }
-          })().catch(console.error);
+          }
+        } else if (deepLinkContactId) {
+          initialDeepLinkHandledRef.current = true;
+          const match = loaded.find((c) => c.contact_id === deepLinkContactId);
+          if (match && activeConversationRef.current?.id !== match.id) {
+            activeConversationRef.current = match;
+            setActiveConversation(match);
+            setActiveContact(match.contact ?? null);
+            setMessages([]);
+          } else {
+            // Query DB for conversation with this contact_id
+            (async () => {
+              const supabase = createClient();
+              const { data } = await supabase
+                .from("conversations")
+                .select(CONVERSATION_SELECT)
+                .eq("contact_id", deepLinkContactId)
+                .limit(1);
+              if (data && data.length > 0) {
+                const norm = normalizeConversation(data[0]);
+                setConversations((prev) => [norm, ...prev]);
+                activeConversationRef.current = norm;
+                setActiveConversation(norm);
+                setActiveContact(norm.contact ?? null);
+                setMessages([]);
+              }
+            })().catch(console.error);
+          }
         }
       }
     },
@@ -515,6 +492,7 @@ function InboxPageInner() {
       // when conversationId changes — so messages would stay empty until
       // the user navigated away and back. Bail out early instead.
       if (activeConversationRef.current?.id === conv.id) return;
+      initialDeepLinkHandledRef.current = true;
       activeConversationRef.current = conv;
       setActiveConversation(conv);
       setActiveContact(conv.contact ?? null);
@@ -527,7 +505,6 @@ function InboxPageInner() {
             : c,
         ),
       );
-      autoSelectedForDeepLinkRef.current = conv.id;
       // Update browser URL without triggering Next.js routing loops
       if (typeof window !== "undefined") {
         const url = new URL(window.location.href);

@@ -23,10 +23,12 @@ import {
   CircleAlert,
   Plus,
   Trash2,
+  Copy,
   ChevronDown,
   ChevronUp,
   CornerDownRight,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -81,6 +83,7 @@ export function FlowBuilder() {
     issues,
     flashKey,
     addNode: addNodeCtx,
+    duplicateNode: duplicateNodeCtx,
     updateNode,
     updateNodeConfig,
     removeNode: removeNodeCtx,
@@ -115,6 +118,17 @@ export function FlowBuilder() {
       });
     },
     [removeNodeCtx]
+  );
+
+  const duplicateNode = useCallback(
+    (key: string) => {
+      const newKey = duplicateNodeCtx(key);
+      if (newKey) {
+        setExpanded((prev) => new Set([...prev, newKey]));
+        toast.success('Step duplicated successfully');
+      }
+    },
+    [duplicateNodeCtx]
   );
 
   const toggleExpanded = useCallback((key: string) => {
@@ -194,6 +208,7 @@ export function FlowBuilder() {
               onUpdate={(patch) => updateNode(node.node_key, patch)}
               onUpdateConfig={(patch) => updateNodeConfig(node.node_key, patch)}
               onRemove={() => removeNode(node.node_key)}
+              onDuplicate={() => duplicateNode(node.node_key)}
               onSetEntry={() =>
                 setState((s) => ({ ...s, entry_node_id: node.node_key }))
               }
@@ -399,6 +414,7 @@ function NodeCard({
   onUpdate: (patch: Partial<BuilderNode>) => void;
   onUpdateConfig: (patch: Record<string, unknown>) => void;
   onRemove: () => void;
+  onDuplicate: () => void;
   onSetEntry: () => void;
   t: ReturnType<typeof useTranslations>;
 }) {
@@ -482,6 +498,16 @@ function NodeCard({
                   {t('setAsEntry')}
                 </Button>
               )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onDuplicate}
+                className="gap-1.5 border-primary/30 text-primary hover:bg-primary/10"
+                title="Duplicate this step"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Duplicate
+              </Button>
             </div>
             <Button
               variant="ghost"

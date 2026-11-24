@@ -36,6 +36,7 @@ import {
   MapPin,
 } from "lucide-react";
 import { AttachPhotoDialog } from "@/components/contacts/attach-photo-dialog";
+import { formatCurrency } from "@/lib/currency";
 import { ContactAttachments } from "@/components/contacts/contact-attachments";
 import { CreateReminderDialog } from "@/components/reminders/create-reminder-dialog";
 import { ReminderCalendarModal } from "@/components/reminders/reminder-calendar-modal";
@@ -130,6 +131,23 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
   const [dealValue, setDealValue] = useState<string>("0");
   const [addingPipelineDeal, setAddingPipelineDeal] = useState(false);
   const [pipelinePopoverOpen, setPipelinePopoverOpen] = useState(false);
+
+  // Deduplicate deals: only show the single current stage/deal per pipeline (most recent first)
+  const currentDeals = useMemo(() => {
+    const map = new Map<string, Deal>();
+    const sorted = [...deals].sort(
+      (a, b) =>
+        new Date(b.updated_at || b.created_at || 0).getTime() -
+        new Date(a.updated_at || a.created_at || 0).getTime()
+    );
+    for (const d of sorted) {
+      const key = d.pipeline_id || "default";
+      if (!map.has(key)) {
+        map.set(key, d);
+      }
+    }
+    return Array.from(map.values());
+  }, [deals]);
 
   // Tag popover state
   const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
@@ -500,6 +518,62 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
     // Note: deals.assigned_to references profiles(id), whereas user.id is auth.users(id).
     // Use stage's default assignee profile id, or the current user's profile.id (fallback to null).
     const assignedTo = stageData?.default_assignee_id || profile?.id || null;
+
+    // Check if a deal already exists for this contact in this pipeline (or any deal for this contact)
+    const existingDeal = deals.find((d) => d.pipeline_id === selectedPipelineId) || deals[0];
+
+    if (existingDeal) {
+      // Update existing deal stage instead of duplicating
+      const { data, error } = await supabase
+        .from("deals")
+        .update({
+          pipeline_id: selectedPipelineId,
+          stage_id: selectedStageId,
+          title,
+          value: numValue,
+          assigned_to: assignedTo,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingDeal.id)
+        .select("*, stage:pipeline_stages(*)")
+        .single();
+
+      setAddingPipelineDeal(false);
+
+      if (error) {
+        toast.error(`Failed to update pipeline stage: ${error.message}`);
+        return;
+      }
+
+      if (data) {
+        setDeals((prev) =>
+          prev.map((d) => (d.id === existingDeal.id ? (data as Deal) : d))
+        );
+        setDealTitle("");
+        setDealValue("0");
+        setPipelinePopoverOpen(false);
+        toast.success("Lead moved to new pipeline stage!");
+
+        // Auto-assign chat to the stage's default assignee if configured
+        if (stageData?.default_assignee_id) {
+          (async () => {
+            const { data: assigneeProfile } = await supabase
+              .from("profiles")
+              .select("user_id")
+              .eq("id", stageData.default_assignee_id)
+              .maybeSingle();
+
+            if (assigneeProfile?.user_id) {
+              await supabase
+                .from("conversations")
+                .update({ assigned_agent_id: assigneeProfile.user_id })
+                .eq("contact_id", contact.id);
+            }
+          })().catch(console.error);
+        }
+        return;
+      }
+    }
 
     const { data, error } = await supabase
       .from("deals")
@@ -938,7 +1012,7 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
               <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 <GitBranch className="h-3.5 w-3.5 text-primary" />
                 <span>Pipelines & Deals</span>
-                <span className="text-[10px] text-muted-foreground">({deals.length})</span>
+                <span className="text-[10px] text-muted-foreground">({currentDeals.length})</span>
               </div>
 
               {/* Add to Pipeline Popover shortcut */}
@@ -1025,10 +1099,10 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
               </Popover>
             </div>
             <div className="space-y-2">
-              {deals.length === 0 ? (
+              {currentDeals.length === 0 ? (
                 <p className="text-xs text-muted-foreground italic">{tSidebar("noDeals")}</p>
               ) : (
-                deals.map((deal) => (
+                currentDeals.map((deal) => (
                   <div
                     key={deal.id}
                     className="rounded-lg border border-border bg-muted/40 p-2.5 transition-colors hover:border-primary/30"
@@ -1049,8 +1123,7 @@ export function ContactSidebar({ contact, onContactUpdated }: ContactSidebarProp
                     </div>
                     <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
                       <span className="font-semibold text-foreground">
-                        {deal.currency ?? "₹"}
-                        {deal.value.toLocaleString()}
+                        {formatCurrency(deal.value)}
                       </span>
                       {canAccessPipeline(deal.pipeline_id) && (
                         <button

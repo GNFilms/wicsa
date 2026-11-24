@@ -57,7 +57,8 @@ import {
   type OnNodeDrag,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Copy } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { useTranslations } from 'next-intl';
 
@@ -282,6 +283,7 @@ function FlowCanvasInner() {
     updateNodePosition,
     updateNodePositions,
     removeNode,
+    duplicateNode,
     flashKey,
   } = useFlowEditor();
   const reactFlow = useReactFlow();
@@ -505,6 +507,15 @@ function FlowCanvasInner() {
     setSelectedNodeKey(null);
   }, [selectedNodeKey, removeNode]);
 
+  const handleDuplicateSelected = useCallback(() => {
+    if (!selectedNodeKey) return;
+    const newKey = duplicateNode(selectedNodeKey);
+    if (newKey) {
+      setSelectedNodeKey(newKey);
+      toast.success('Step duplicated successfully');
+    }
+  }, [selectedNodeKey, duplicateNode]);
+
   const handleSetEntry = useCallback(() => {
     if (!selectedNodeKey) return;
     setState((s) => ({ ...s, entry_node_id: selectedNodeKey }));
@@ -582,6 +593,7 @@ function FlowCanvasInner() {
         onClose={() => setSelectedNodeKey(null)}
         onUpdateConfig={onSelectedUpdateConfig}
         onDelete={handleDeleteSelected}
+        onDuplicate={handleDuplicateSelected}
         onSetEntry={handleSetEntry}
         t={t}
       />
@@ -602,6 +614,7 @@ function NodeEditSheet({
   onClose,
   onUpdateConfig,
   onDelete,
+  onDuplicate,
   onSetEntry,
   t,
 }: {
@@ -611,6 +624,7 @@ function NodeEditSheet({
   onClose: () => void;
   onUpdateConfig: (patch: Record<string, unknown>) => void;
   onDelete: () => void;
+  onDuplicate: () => void;
   onSetEntry: () => void;
   t: ReturnType<typeof useTranslations>;
 }) {
@@ -661,14 +675,24 @@ function NodeEditSheet({
           />
         </div>
 
-        <SheetFooter className="border-border border-t px-5 py-3 sm:flex-row sm:justify-between">
-          {!isEntry ? (
-            <Button variant="ghost" size="sm" onClick={onSetEntry}>
-              {t('setAsEntry')}
+        <SheetFooter className="border-border border-t px-5 py-3 sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="flex items-center gap-2">
+            {!isEntry && (
+              <Button variant="ghost" size="sm" onClick={onSetEntry}>
+                {t('setAsEntry')}
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onDuplicate}
+              className="gap-1.5 border-primary/30 text-primary hover:bg-primary/10"
+              title="Duplicate this step"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              Duplicate
             </Button>
-          ) : (
-            <span />
-          )}
+          </div>
           <Button
             variant="ghost"
             size="sm"

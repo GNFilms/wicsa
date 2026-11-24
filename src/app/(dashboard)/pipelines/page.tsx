@@ -148,7 +148,19 @@ function PipelinesContent() {
         .select("*, contact:contacts(*), assignee:profiles!deals_assigned_to_fkey(*)")
         .eq("pipeline_id", pipelineId)
         .order("created_at", { ascending: false });
-      return (data ?? []) as Deal[];
+
+      const rawDeals = (data ?? []) as Deal[];
+      // Deduplicate deals by contact_id so each contact only appears ONCE in their latest current stage
+      const seenContacts = new Set<string>();
+      const uniqueDeals: Deal[] = [];
+      for (const d of rawDeals) {
+        if (d.contact_id) {
+          if (seenContacts.has(d.contact_id)) continue;
+          seenContacts.add(d.contact_id);
+        }
+        uniqueDeals.push(d);
+      }
+      return uniqueDeals;
     },
     [supabase],
   );
@@ -348,6 +360,10 @@ function PipelinesContent() {
 
         // Record transfer activity
         const movedDeal = deals.find((d) => d.id === dealId);
+        const assigneeName = targetAssigneeId
+          ? teamMembers.find((m) => m.id === targetAssigneeId)?.full_name || "Team Member"
+          : null;
+
         fetch("/api/deals/activities", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -358,10 +374,16 @@ function PipelinesContent() {
             activity_type: "pipeline_transfer",
             actor_name: profile?.full_name || "Team Member",
             details: {
+              deal_title: movedDeal?.title,
+              contact_name: movedDeal?.contact?.name,
               from_pipeline_id: selectedPipelineId,
+              from_stage_id: targetStage.id,
+              from_stage_name: targetStage.name,
               to_pipeline_id: targetPipeId,
               to_pipeline_name: targetPipeName,
+              to_stage_id: targetStgId,
               to_stage_name: targetStgName,
+              to_assignee_name: assigneeName,
             },
           }),
         }).catch(console.error);
@@ -385,19 +407,33 @@ function PipelinesContent() {
       }
 
       // Normal stage move: optimistic update — board already animated; just persist.
+      const movedDeal = deals.find((d) => d.id === dealId);
       setDeals((prev) =>
-        prev.map((d) => (d.id === dealId ? { ...d, stage_id: newStageId } : d)),
+        prev.map((d) =>
+          d.id === dealId || (movedDeal?.contact_id && d.contact_id === movedDeal.contact_id)
+            ? { ...d, stage_id: newStageId }
+            : d,
+        ),
       );
 
-      const updatePayload: Record<string, unknown> = { stage_id: newStageId };
+      const updatePayload: Record<string, unknown> = {
+        stage_id: newStageId,
+        updated_at: new Date().toISOString(),
+      };
       if (targetStage?.default_assignee_id) {
         updatePayload.assigned_to = targetStage.default_assignee_id;
       }
 
-      const { error } = await supabase
-        .from("deals")
-        .update(updatePayload)
-        .eq("id", dealId);
+      // Update the deal and any legacy duplicate deals for this contact in this pipeline
+      const updateQuery = movedDeal?.contact_id
+        ? supabase
+            .from("deals")
+            .update(updatePayload)
+            .eq("contact_id", movedDeal.contact_id)
+            .eq("pipeline_id", selectedPipelineId)
+        : supabase.from("deals").update(updatePayload).eq("id", dealId);
+
+      const { error } = await updateQuery;
 
       if (error) {
         toast.error(t("toastFailedMoveDeal"));

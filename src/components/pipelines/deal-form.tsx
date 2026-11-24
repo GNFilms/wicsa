@@ -61,7 +61,7 @@ export function DealForm({
 
   const [title, setTitle] = useState("");
   const [value, setValue] = useState("");
-  const [currency, setCurrency] = useState(defaultCurrency);
+  const [currency, setCurrency] = useState("INR");
   const [contactId, setContactId] = useState("");
   const [stageId, setStageId] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
@@ -88,7 +88,7 @@ export function DealForm({
     if (deal) {
       setTitle(deal.title);
       setValue(String(deal.value ?? ""));
-      setCurrency(deal.currency || defaultCurrency);
+      setCurrency("INR");
       // contact_id is nullable when the contact has been deleted
       // (migration 004: ON DELETE SET NULL). "" means "no selection".
       setContactId(deal.contact_id ?? "");
@@ -437,11 +437,13 @@ export function DealForm({
               )}
             </div>
 
-            <div className="grid grid-cols-[1fr_110px] gap-3">
+            <div className="grid grid-cols-[1fr_120px] gap-3">
               <div className="grid gap-2">
                 <Label className="text-muted-foreground">{t("value")}</Label>
                 <div className="relative">
-                  <DollarSign className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">
+                    ₹
+                  </span>
                   <Input
                     type="number"
                     value={value}
@@ -453,17 +455,9 @@ export function DealForm({
               </div>
               <div className="grid gap-2">
                 <Label className="text-muted-foreground">{t("currency")}</Label>
-                <select
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
-                >
-                  {CURRENCIES.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.code}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex h-9 w-full items-center justify-center rounded-lg border border-border bg-muted/50 px-2.5 text-xs font-semibold text-foreground">
+                  INR (₹)
+                </div>
               </div>
             </div>
 

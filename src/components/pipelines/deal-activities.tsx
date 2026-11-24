@@ -27,7 +27,8 @@ export interface DealActivity {
     | "description_update"
     | "due_date_change"
     | "status_change"
-    | "value_change";
+    | "value_change"
+    | "pipeline_transfer";
   actor_name: string;
   details?: Record<string, any>;
   created_at: string;
@@ -189,6 +190,30 @@ export function DealActivities({
                     <span className="font-semibold text-foreground mr-1">
                       {actor}
                     </span>
+
+                    {act.activity_type === "pipeline_transfer" && (
+                      <span className="text-emerald-700 dark:text-emerald-300 font-medium">
+                        transferred lead to{" "}
+                        <span className="font-semibold underline">
+                          {act.details?.to_pipeline_name || "Target Pipeline"}
+                        </span>{" "}
+                        ›{" "}
+                        <span className="font-semibold">
+                          {act.details?.to_stage_name || "Target Stage"}
+                        </span>
+                        {act.details?.to_assignee_name && (
+                          <span>
+                            {" "}
+                            (assigned to{" "}
+                            <span className="font-semibold">
+                              {act.details.to_assignee_name}
+                            </span>
+                            )
+                          </span>
+                        )}
+                        .
+                      </span>
+                    )}
 
                     {act.activity_type === "stage_change" && (
                       <span>

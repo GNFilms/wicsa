@@ -922,17 +922,19 @@ export function MessageThread({
 
           const { data: existingDeals } = await supabase
             .from("deals")
-            .select("id, stage_id")
+            .select("id, pipeline_id, stage_id")
             .eq("contact_id", conversation.contact_id)
-            .eq("pipeline_id", targetStage.pipeline_id)
+            .order("updated_at", { ascending: false })
             .limit(1);
 
           if (existingDeals && existingDeals.length > 0) {
             await supabase
               .from("deals")
               .update({
+                pipeline_id: targetStage.pipeline_id,
                 stage_id: targetStage.id,
                 assigned_to: assigneeProfile.id,
+                updated_at: new Date().toISOString(),
               })
               .eq("id", existingDeals[0].id);
           } else {
