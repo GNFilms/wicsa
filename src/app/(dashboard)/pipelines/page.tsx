@@ -442,7 +442,6 @@ function PipelinesContent() {
       }
 
       // Record stage change activity
-      const movedDeal = deals.find((d) => d.id === dealId);
       const fromStage = stages.find((s) => s.id === movedDeal?.stage_id)?.name;
       const toStage = targetStage?.name;
       fetch("/api/deals/activities", {
@@ -460,7 +459,6 @@ function PipelinesContent() {
 
       // Auto-assign conversation when deal lands on a stage with a default assignee
       if (targetStage?.default_assignee_id) {
-        const movedDeal = deals.find((d) => d.id === dealId);
         if (movedDeal?.contact_id) {
           const { data: assigneeProfile } = await supabase
             .from("profiles")
