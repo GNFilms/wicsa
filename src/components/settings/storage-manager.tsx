@@ -77,6 +77,46 @@ export function StorageManager() {
   const [selectedBucket, setSelectedBucket] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'size_desc' | 'size_asc' | 'date_desc' | 'name_asc'>('size_desc');
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  const [thresholdMb, setThresholdMb] = useState<number>(() => {
+    if (typeof window === 'undefined') return 700;
+    const saved = Number(localStorage.getItem('wacrm:storage:thresholdMb'));
+    return saved >= 50 && saved <= 1000 ? saved : 700;
+  });
+  const [cleaningUp, setCleaningUp] = useState(false);
+
+  const handleThresholdChange = (val: number) => {
+    const clamped = Math.max(50, Math.min(1000, val || 700));
+    setThresholdMb(clamped);
+    try {
+      localStorage.setItem('wacrm:storage:thresholdMb', String(clamped));
+    } catch {}
+  };
+
+  const handleAutoCleanup = async () => {
+    setCleaningUp(true);
+    try {
+      const res = await fetch('/api/storage/files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cleanup', thresholdMb }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (data.deletedCount > 0) {
+          toast.success(`Cleaned ${data.deletedCount} oldest files (${formatBytes(data.freedBytes)} freed)!`);
+          await fetchFiles();
+        } else {
+          toast.info(`Storage (${formatBytes(totalSize)}) is already under ${thresholdMb} MB.`);
+        }
+      } else {
+        toast.error(data.error || 'Auto-cleanup failed');
+      }
+    } catch {
+      toast.error('Network error during storage cleanup');
+    } finally {
+      setCleaningUp(false);
+    }
+  };
 
   // Deletion modal state
   const [deleteTarget, setDeleteTarget] = useState<StorageFile | null>(null);
@@ -230,6 +270,42 @@ export function StorageManager() {
             >
               <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
               Refresh
+            </Button>
+          </div>
+        </div>
+
+        {/* Auto-Cleanup Threshold & File Size Limit Info */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+          <div className="space-y-0.5">
+            <p className="font-semibold text-foreground flex items-center gap-1.5">
+              <ShieldAlert className="size-4 text-amber-500" />
+              Supabase Quota Protection (Auto-Clean &gt; 7 Days or Over Threshold)
+            </p>
+            <p className="text-muted-foreground">
+              Full 100 MB uploads stay enabled. Removes video &amp; audio older than 7 days (or oldest video/audio above threshold). Profile pictures &amp; images are kept unless storage is still full.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground font-medium">Threshold (MB):</span>
+              <Input
+                type="number"
+                min={50}
+                max={1000}
+                value={thresholdMb}
+                onChange={(e) => handleThresholdChange(Number(e.target.value))}
+                className="h-8 w-20 text-xs"
+              />
+            </div>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={handleAutoCleanup}
+              disabled={cleaningUp || loading}
+              className="h-8 text-xs gap-1.5"
+            >
+              {cleaningUp ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+              Auto-Clean Oldest
             </Button>
           </div>
         </div>

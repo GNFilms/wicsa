@@ -159,3 +159,102 @@ export async function DELETE(request: Request) {
   }
 }
 
+export async function POST(request: Request) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const thresholdMb = Math.max(50, Math.min(1000, Number(body?.thresholdMb) || 700));
+    const maxAgeDays = Math.max(1, Math.min(365, Number(body?.maxAgeDays) || 7));
+    const thresholdBytes = thresholdMb * 1024 * 1024;
+    const cutoffMs = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+
+    const admin = supabaseAdmin();
+    let allFiles: StorageFileItem[] = [];
+    for (const b of KNOWN_BUCKETS) {
+      const files = await listFolderRecursive(admin, b, '', 0);
+      allFiles = allFiles.concat(files);
+    }
+
+    // Sort oldest first within each priority tier
+    allFiles.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    const isVideoOrAudio = (f: StorageFileItem) =>
+      f.mimeType.startsWith('video/') || f.mimeType.startsWith('audio/');
+    const isProtectedAvatar = (f: StorageFileItem) => f.bucket === 'avatars';
+
+    let totalBytes = allFiles.reduce((acc, f) => acc + f.size, 0);
+    const byBucket = new Map<string, string[]>();
+    const selectedIds = new Set<string>();
+    let freedBytes = 0;
+    let toDeleteCount = 0;
+
+    const markForDelete = (f: StorageFileItem) => {
+      if (selectedIds.has(f.id)) return;
+      selectedIds.add(f.id);
+      const list = byBucket.get(f.bucket) || [];
+      list.push(f.path);
+      byBucket.set(f.bucket, list);
+      freedBytes += f.size;
+      toDeleteCount += 1;
+    };
+
+    // Pass 1: Delete video & audio files in chat-media older than maxAgeDays (7 days)
+    for (const f of allFiles) {
+      if (
+        f.bucket === 'chat-media' &&
+        isVideoOrAudio(f) &&
+        new Date(f.createdAt).getTime() < cutoffMs
+      ) {
+        markForDelete(f);
+      }
+    }
+
+    // Pass 2: If still over threshold, delete oldest video & audio files first
+    for (const f of allFiles) {
+      if (totalBytes - freedBytes <= thresholdBytes) break;
+      if (!isProtectedAvatar(f) && isVideoOrAudio(f)) {
+        markForDelete(f);
+      }
+    }
+
+    // Pass 3 (Last resort): If still over threshold after all videos/audio are removed,
+    // delete oldest non-avatar files (never touch client profile pictures in avatars)
+    for (const f of allFiles) {
+      if (totalBytes - freedBytes <= thresholdBytes) break;
+      if (!isProtectedAvatar(f)) {
+        markForDelete(f);
+      }
+    }
+
+    if (toDeleteCount === 0) {
+      return NextResponse.json({
+        success: true,
+        deletedCount: 0,
+        freedBytes: 0,
+        remainingBytes: totalBytes,
+        message: 'Storage is already below threshold and no chat-media files are older than 7 days.',
+      });
+    }
+
+    let deletedCount = 0;
+    for (const [bucket, paths] of byBucket.entries()) {
+      const { data, error } = await admin.storage.from(bucket).remove(paths);
+      if (!error) {
+        deletedCount += data?.length ?? paths.length;
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      deletedCount: deletedCount || toDeleteCount,
+      freedBytes,
+      remainingBytes: Math.max(0, totalBytes - freedBytes),
+    });
+  } catch (err: unknown) {
+    console.error('Storage cleanup POST error:', err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Failed to run storage cleanup' },
+      { status: 500 },
+    );
+  }
+}
+
