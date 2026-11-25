@@ -86,6 +86,68 @@ export interface UploadAccountMediaResult {
  * Size validation is the caller's responsibility (limits can differ per
  * feature); `MEDIA_MAX_BYTES` is exported for the common case.
  */
+/**
+ * Instant client-side image compression using HTML5 Canvas.
+ * - Avatars (profile pics): max 400x400px, ~20-40 KB
+ * - Pamphlets / Posters / Chat images: max 1400px, ~80-180 KB
+ * Returns the original file if not an image, if SVG/GIF, or if compression doesn't save space.
+ */
+async function compressImageIfNeeded(file: File, bucket: string): Promise<File> {
+  if (typeof window === "undefined" || typeof document === "undefined") return file;
+  if (!file.type.startsWith("image/")) return file;
+  if (file.type === "image/svg+xml" || file.type === "image/gif") return file;
+  // Skip tiny images already under 60 KB
+  if (file.size <= 60 * 1024) return file;
+
+  const isAvatar = bucket === "avatars";
+  const maxDim = isAvatar ? 400 : 1400;
+  const quality = isAvatar ? 0.75 : 0.78;
+
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      const url = URL.createObjectURL(file);
+      el.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(el);
+      };
+      el.onerror = (err) => {
+        URL.revokeObjectURL(url);
+        reject(err);
+      };
+      el.src = url;
+    });
+
+    let { width, height } = img;
+    if (width > maxDim || height > maxDim) {
+      if (width >= height) {
+        height = Math.round((height * maxDim) / width);
+        width = maxDim;
+      } else {
+        width = Math.round((width * maxDim) / height);
+        height = maxDim;
+      }
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(img, 0, 0, width, height);
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", quality),
+    );
+    if (!blob || blob.size >= file.size) return file;
+
+    const baseName = file.name.replace(/\.[^.]+$/, "");
+    return new File([blob], `${baseName}.jpg`, { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
+}
+
 export async function uploadAccountMedia(
   bucket: string,
   file: File,
@@ -100,6 +162,9 @@ export async function uploadAccountMedia(
     throw new Error("Not signed in.");
   }
 
+  // Compress images on the spot before uploading
+  const fileToUpload = await compressImageIfNeeded(file, bucket);
+
   // Resolve account_id so the path is account-scoped (matches the
   // bucket's RLS write policy from migration 020/023). User-scoped
   // paths would be rejected.
@@ -112,8 +177,8 @@ export async function uploadAccountMedia(
     throw new Error("Could not resolve your account.");
   }
 
-  const ext = file.name.split('.').pop()?.toLowerCase();
-  let contentType = file.type;
+  const ext = fileToUpload.name.split('.').pop()?.toLowerCase();
+  let contentType = fileToUpload.type;
   if (ext === 'mp3') {
     contentType = 'audio/mpeg';
   } else if (ext === 'wav') {
@@ -126,14 +191,14 @@ export async function uploadAccountMedia(
     contentType = 'audio/aac';
   }
 
-  const path = buildMediaPath(profile.account_id as string, file.name);
+  const path = buildMediaPath(profile.account_id as string, fileToUpload.name);
   let targetBucket = bucket;
   const isAudio = contentType?.startsWith('audio/') || ['mp3', 'wav', 'ogg', 'm4a', 'aac'].includes(ext || '');
   if (targetBucket === 'flow-media' && isAudio) {
     targetBucket = 'chat-media';
   }
 
-  let { error: upErr } = await supabase.storage.from(targetBucket).upload(path, file, {
+  let { error: upErr } = await supabase.storage.from(targetBucket).upload(path, fileToUpload, {
     cacheControl: "3600",
     upsert: false,
     contentType: contentType || undefined,
@@ -141,7 +206,7 @@ export async function uploadAccountMedia(
 
   if (upErr && (upErr.message.includes('mime type') || upErr.message.includes('not supported')) && targetBucket !== 'chat-media') {
     targetBucket = 'chat-media';
-    const retry = await supabase.storage.from('chat-media').upload(path, file, {
+    const retry = await supabase.storage.from('chat-media').upload(path, fileToUpload, {
       cacheControl: "3600",
       upsert: false,
       contentType: contentType || undefined,
