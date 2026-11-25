@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Message, MessageReaction } from "@/types";
 import {
@@ -24,6 +26,57 @@ import {
 } from "./message-media";
 import { InteractivePreview } from "@/components/interactive/interactive-preview";
 import { useTranslations } from "next-intl";
+
+function AudioTranscribeButton({ message }: { message: Message }) {
+  const [loading, setLoading] = useState(false);
+  const [transcript, setTranscript] = useState<string | null>(
+    message.content_text && message.content_text.startsWith("🎤 ")
+      ? message.content_text.slice(2).trim()
+      : null,
+  );
+
+  const handleTranscribe = async () => {
+    if (!message.media_url || loading) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/ai/transcribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: message.id, mediaUrl: message.media_url }),
+      });
+      const data = await res.json();
+      if (res.ok && data.text) {
+        setTranscript(data.text);
+      } else {
+        toast.error(data.error || "Transcription failed");
+      }
+    } catch {
+      toast.error("Network error during transcription");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (transcript) {
+    return (
+      <p className="mt-1.5 rounded bg-black/10 px-2 py-1 text-xs leading-relaxed">
+        🎤 {transcript}
+      </p>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleTranscribe}
+      disabled={loading}
+      className="mt-1 inline-flex items-center gap-1 rounded bg-black/15 px-2 py-0.5 text-[11px] font-medium hover:bg-black/25 transition-colors disabled:opacity-50"
+    >
+      <Sparkles className="h-3 w-3" />
+      {loading ? "Transcribing..." : "Transcribe"}
+    </button>
+  );
+}
 
 interface MessageBubbleProps {
   message: Message;
@@ -140,7 +193,10 @@ function MessageContent({
       return (
         <div>
           {message.media_url ? (
-            <MediaAudioBubble message={message} t={t} />
+            <>
+              <MediaAudioBubble message={message} t={t} />
+              <AudioTranscribeButton message={message} />
+            </>
           ) : (
             <MediaUnavailable label={t("audio")} t={t} />
           )}

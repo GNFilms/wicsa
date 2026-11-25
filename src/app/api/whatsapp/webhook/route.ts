@@ -18,6 +18,7 @@ import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
+import { autoTagContactFromMessage } from '@/lib/whatsapp/inbound-auto-tag'
 import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
@@ -813,6 +814,10 @@ async function processMessage(
   if (msgError) {
     console.error('Error inserting message:', msgError)
     return
+  }
+
+  if (insertedRows && insertedRows.length > 0 && contentText && contact?.id) {
+    autoTagContactFromMessage(supabaseAdmin(), accountId, contact.id, contentText).catch(() => {})
   }
 
   // Replayed delivery: the message already exists, so acknowledge it as a

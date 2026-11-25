@@ -11,6 +11,7 @@ import {
 import {
   Send,
   LayoutTemplate,
+  QrCode,
   Paperclip,
   Image as ImageIcon,
   Video,
@@ -1093,6 +1094,31 @@ export function MessageComposer({
             onClick={onOpenTemplates}
           >
             <LayoutTemplate className="h-4 w-4" />
+          </GatedButton>
+
+          <GatedButton
+            variant="ghost"
+            size="sm"
+            canAct={!readOnly}
+            gateReason="send messages"
+            title="1-Click Send UPI / Payment Details"
+            className="h-9 w-9 shrink-0 p-0 text-emerald-500 hover:text-emerald-400"
+            onClick={() => {
+              let upiMsg = typeof window !== "undefined" ? localStorage.getItem("wacrm:upi_details") : null;
+              if (!upiMsg) {
+                const entered = window.prompt(
+                  "Enter your UPI ID / Payment Details (saved for 1-click sending):",
+                  "Payment Details:\nUPI ID: yourbusiness@upi\nPlease share screenshot after payment.",
+                );
+                if (!entered || !entered.trim()) return;
+                upiMsg = entered.trim();
+                localStorage.setItem("wacrm:upi_details", upiMsg);
+              }
+              onSendText(upiMsg);
+              toast.success("UPI / Payment details sent!");
+            }}
+          >
+            <QrCode className="h-4 w-4" />
           </GatedButton>
 
           <GatedButton
