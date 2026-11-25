@@ -1114,7 +1114,7 @@ export function MessageComposer({
                 upiMsg = entered.trim();
                 localStorage.setItem("wacrm:upi_details", upiMsg);
               }
-              onSendText(upiMsg);
+              onSend(upiMsg);
               toast.success("UPI / Payment details sent!");
             }}
           >

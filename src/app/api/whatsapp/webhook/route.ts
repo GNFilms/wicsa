@@ -816,8 +816,8 @@ async function processMessage(
     return
   }
 
-  if (insertedRows && insertedRows.length > 0 && contentText && contact?.id) {
-    autoTagContactFromMessage(supabaseAdmin(), accountId, contact.id, contentText).catch(() => {})
+  if (insertedRows && insertedRows.length > 0 && contentText && conversation?.contact_id) {
+    autoTagContactFromMessage(supabaseAdmin(), accountId, conversation.contact_id, contentText).catch(() => {})
   }
 
   // Replayed delivery: the message already exists, so acknowledge it as a
