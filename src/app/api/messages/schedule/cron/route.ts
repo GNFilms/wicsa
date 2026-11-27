@@ -36,9 +36,7 @@ export async function GET(request: Request) {
 
     for (const item of due ?? []) {
       try {
-        await sendMessageToConversation({
-          supabase: admin,
-          accountId: item.account_id,
+        await sendMessageToConversation(admin, item.account_id, {
           conversationId: item.conversation_id,
           messageType: item.message_type,
           contentText: item.content_text ?? undefined,
