@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
-import { sendWhatsAppMessage } from '@/lib/whatsapp/send-message';
+import { sendMessageToConversation } from '@/lib/whatsapp/send-message';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
 
     const { data: due, error } = await admin
       .from('scheduled_messages')
-      .select('*, conversations(contact_id, contacts(phone))')
+      .select('*')
       .eq('status', 'pending')
       .lte('scheduled_for', nowIso)
       .order('scheduled_for', { ascending: true })
@@ -35,36 +35,16 @@ export async function GET(request: Request) {
     let failed = 0;
 
     for (const item of due ?? []) {
-      const phone = (item as any).conversations?.contacts?.phone;
-      if (!phone) {
-        await admin
-          .from('scheduled_messages')
-          .update({ status: 'failed', error_message: 'Missing recipient phone' })
-          .eq('id', item.id);
-        failed++;
-        continue;
-      }
-
       try {
-        const result = await sendWhatsAppMessage({
+        await sendMessageToConversation({
+          supabase: admin,
           accountId: item.account_id,
-          to: phone,
-          type: item.message_type,
-          text: item.content_text ?? undefined,
+          conversationId: item.conversation_id,
+          messageType: item.message_type,
+          contentText: item.content_text ?? undefined,
           mediaUrl: item.media_url ?? undefined,
           templateName: item.template_name ?? undefined,
           templateLanguage: item.template_language ?? undefined,
-        });
-
-        await admin.from('messages').insert({
-          conversation_id: item.conversation_id,
-          sender_type: 'agent',
-          content_type: item.message_type,
-          content_text: item.content_text ?? (item.template_name ? `Template: ${item.template_name}` : ''),
-          media_url: item.media_url,
-          template_name: item.template_name,
-          message_id: result.messageId ?? null,
-          status: 'sent',
         });
 
         await admin
