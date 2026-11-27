@@ -673,6 +673,28 @@ function NodeEditSheet({
             showAdvanced={false}
             onUpdateConfig={onUpdateConfig}
           />
+          {node.node_type !== 'delay' && (
+            <div className="mt-2 rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
+              <label className="text-xs font-medium text-foreground block">
+                Delay / Timer before this step (seconds)
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={60}
+                value={Number((node.config as Record<string, unknown>)?.delay_seconds ?? 0)}
+                onChange={(e) =>
+                  onUpdateConfig({
+                    delay_seconds: Math.max(0, Math.min(60, Number(e.target.value) || 0)),
+                  })
+                }
+                className="h-8 w-28 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Wait 0–60 seconds before running this node (0 = instant).
+              </p>
+            </div>
+          )}
         </div>
 
         <SheetFooter className="border-border border-t px-5 py-3 sm:flex-row sm:items-center sm:justify-between gap-2">

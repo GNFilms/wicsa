@@ -12,6 +12,7 @@ import {
   Send,
   LayoutTemplate,
   QrCode,
+  Clock,
   Paperclip,
   Image as ImageIcon,
   Video,
@@ -169,6 +170,49 @@ export function MessageComposer({
   const [sending, setSending] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Schedule message (long-press / right-click on Send)
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduleDateTime, setScheduleDateTime] = useState(() => {
+    const d = new Date(Date.now() + 60 * 60 * 1000);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  });
+
+  const handleScheduleSend = async () => {
+    if (!text.trim() || !scheduleDateTime) return;
+    const targetDate = new Date(scheduleDateTime);
+    if (isNaN(targetDate.getTime()) || targetDate.getTime() <= Date.now()) {
+      toast.error("Please choose a future date & time");
+      return;
+    }
+    setScheduling(true);
+    try {
+      const res = await fetch("/api/messages/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversation_id: conversationId,
+          message_type: "text",
+          content_text: text.trim(),
+          scheduled_for: targetDate.toISOString(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(`Message scheduled for ${targetDate.toLocaleString()}`);
+        setText("");
+        setScheduleOpen(false);
+      } else {
+        toast.error(data.error || "Failed to schedule message");
+      }
+    } catch {
+      toast.error("Network error scheduling message");
+    } finally {
+      setScheduling(false);
+    }
+  };
 
   // Interactive-message builder dialog + quick-reply picker.
   const [interactiveOpen, setInteractiveOpen] = useState(false);
@@ -1208,7 +1252,34 @@ export function MessageComposer({
             canAct={!readOnly}
             gateReason="send messages"
             disabled={!text.trim() || sessionExpired || sending}
+            title="Click to send · Long-press or right-click to schedule"
             onClick={handleSend}
+            onMouseDown={() => {
+              if (!text.trim() || sessionExpired || sending) return;
+              longPressTimerRef.current = setTimeout(() => {
+                setScheduleOpen(true);
+              }, 500);
+            }}
+            onMouseUp={() => {
+              if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+            }}
+            onMouseLeave={() => {
+              if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+            }}
+            onTouchStart={() => {
+              if (!text.trim() || sessionExpired || sending) return;
+              longPressTimerRef.current = setTimeout(() => {
+                setScheduleOpen(true);
+              }, 500);
+            }}
+            onTouchEnd={() => {
+              if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+            }}
+            onContextMenu={(e) => {
+              if (!text.trim() || sessionExpired || sending) return;
+              e.preventDefault();
+              setScheduleOpen(true);
+            }}
             className="h-9 w-9 shrink-0 bg-primary p-0 hover:bg-primary/90 disabled:opacity-40"
           >
             <Send className="h-4 w-4" />
@@ -1252,6 +1323,72 @@ export function MessageComposer({
             <Button onClick={sendInteractive}>
               <Send className="mr-1 h-4 w-4" />
               {t("send")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Schedule message dialog (triggered by long-press or right-click on Send) */}
+      <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
+        <DialogContent className="sm:max-w-md bg-card text-card-foreground border-border">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Clock className="h-4 w-4 text-primary" />
+              Schedule WhatsApp Message
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2 text-xs">
+            <div className="rounded-md border border-border bg-muted/40 p-2.5 text-foreground whitespace-pre-wrap max-h-28 overflow-y-auto">
+              {text}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { label: "In 1 hour", addMs: 60 * 60 * 1000 },
+                { label: "In 3 hours", addMs: 3 * 60 * 60 * 1000 },
+                {
+                  label: "Tomorrow 10 AM",
+                  custom: () => {
+                    const d = new Date();
+                    d.setDate(d.getDate() + 1);
+                    d.setHours(10, 0, 0, 0);
+                    return d;
+                  },
+                },
+              ].map((preset) => (
+                <Button
+                  key={preset.label}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    const d = preset.custom ? preset.custom() : new Date(Date.now() + (preset.addMs || 0));
+                    setScheduleDateTime(
+                      new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16),
+                    );
+                  }}
+                >
+                  {preset.label}
+                </Button>
+              ))}
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Send Date &amp; Time</Label>
+              <Input
+                type="datetime-local"
+                value={scheduleDateTime}
+                onChange={(e) => setScheduleDateTime(e.target.value)}
+                className="h-9 text-xs"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setScheduleOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleScheduleSend} disabled={scheduling} className="gap-1.5">
+              {scheduling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock className="h-3.5 w-3.5" />}
+              Schedule Message
             </Button>
           </DialogFooter>
         </DialogContent>

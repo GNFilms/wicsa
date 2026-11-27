@@ -12,7 +12,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, ArrowRight, Eye, ImageIcon, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Eye, ImageIcon, Loader2, Upload } from 'lucide-react';
+import { uploadAccountMedia } from '@/lib/storage/upload-media';
+import { toast } from 'sonner';
 import { useTranslations } from 'next-intl';
 
 type VariableType = 'static' | 'field' | 'custom_field';
@@ -84,6 +86,7 @@ export function Step3Personalize({
     Map<string, string>
   >(new Map());
   const [loadingPreview, setLoadingPreview] = useState(true);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
 
   // Load user's custom fields + a representative contact for the
   // live preview. Fall back to sample data if no contacts exist yet.
@@ -254,13 +257,50 @@ export function Step3Personalize({
           <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
             {t('personalize.imageUrl')}
           </label>
-          <Input
-            type="url"
-            value={headerMediaUrl}
-            onChange={(e) => onHeaderMediaUrlChange(e.target.value)}
-            placeholder={t('personalize.imageUrlPlaceholder')}
-            className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
-          />
+          <div className="flex items-center gap-2">
+            <Input
+              type="url"
+              value={headerMediaUrl}
+              onChange={(e) => onHeaderMediaUrlChange(e.target.value)}
+              placeholder={t('personalize.imageUrlPlaceholder')}
+              className="border-border bg-muted text-foreground placeholder:text-muted-foreground flex-1"
+            />
+            <label className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-muted transition-colors shrink-0">
+              {uploadingMedia ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Upload className="h-3.5 w-3.5" />
+              )}
+              <span>{uploadingMedia ? 'Uploading...' : 'Upload'}</span>
+              <input
+                type="file"
+                className="hidden"
+                accept={
+                  mediaHeaderType === 'image'
+                    ? 'image/*'
+                    : mediaHeaderType === 'video'
+                    ? 'video/*'
+                    : '.pdf,.doc,.docx'
+                }
+                disabled={uploadingMedia}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setUploadingMedia(true);
+                  try {
+                    const { publicUrl } = await uploadAccountMedia('chat-media', file);
+                    onHeaderMediaUrlChange(publicUrl);
+                    toast.success('Media uploaded!');
+                  } catch (err) {
+                    toast.error(err instanceof Error ? err.message : 'Upload failed');
+                  } finally {
+                    setUploadingMedia(false);
+                    e.target.value = '';
+                  }
+                }}
+              />
+            </label>
+          </div>
           <p className="mt-1.5 text-xs text-muted-foreground">
             {t('personalize.headerImageDesc')}
           </p>
