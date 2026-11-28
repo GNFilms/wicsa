@@ -55,6 +55,11 @@ import {
   UserPlus,
   Send,
   CheckCheck,
+  Download,
+  ListPlus,
+  Calendar,
+  ArrowUpDown,
+  ChevronDown,
 } from 'lucide-react';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
@@ -90,6 +95,13 @@ export default function ContactsPage() {
   const [totalCount, setTotalCount] = useState(0);
   // Tag filter — contacts shown must have ANY of these tags (OR).
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  // Additional filters & sorting
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | '7days' | '30days' | 'custom'>('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [sectorFilter, setSectorFilter] = useState('');
+  const [savedByFilter, setSavedByFilter] = useState('all');
+  const [sortBy, setSortBy] = useState<'recent' | 'oldest' | 'az' | 'za'>('recent');
 
   // Modals
   const [formOpen, setFormOpen] = useState(false);
@@ -384,48 +396,102 @@ export default function ContactsPage() {
     let contactRows: Contact[];
     let count: number;
 
-    if (selectedTagIds.length > 0) {
-      // Tag filter active — resolve it server-side (join + distinct +
-      // windowed total count + pagination) so a tag covering many
-      // contacts can't silently truncate the result or overflow an IN
-      // clause. See migration 025_filter_contacts_by_tags.
-      const { data, error } = await supabase.rpc('filter_contacts_by_tags', {
-        p_tag_ids: selectedTagIds,
-        p_search: term || null,
-        p_limit: PAGE_SIZE,
-        p_offset: from,
-      });
-      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-      if (error) {
-        toast.error(t('toastFailedLoad'));
-        setLoading(false);
-        return;
-      }
-      const rows = (data ?? []) as { contact: Contact; total_count: number }[];
-      contactRows = rows.map((r) => r.contact);
-      count = rows.length > 0 ? Number(rows[0].total_count) : 0;
-    } else {
-      let query = supabase
-        .from('contacts')
-        .select('*', { count: 'exact' })
-        .order('created_at', { ascending: false })
-        .range(from, to);
+      if (selectedTagIds.length > 0) {
+        // Tag filter active — resolve it server-side (join + distinct +
+        // windowed total count + pagination) so a tag covering many
+        // contacts can't silently truncate the result or overflow an IN
+        // clause. See migration 025_filter_contacts_by_tags.
+        const { data, error } = await supabase.rpc('filter_contacts_by_tags', {
+          p_tag_ids: selectedTagIds,
+          p_search: term || null,
+          p_limit: PAGE_SIZE,
+          p_offset: from,
+        });
+        if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+        if (error) {
+          toast.error(t('toastFailedLoad'));
+          setLoading(false);
+          return;
+        }
+        const rows = (data ?? []) as { contact: Contact; total_count: number }[];
+        contactRows = rows.map((r) => r.contact);
+        count = rows.length > 0 ? Number(rows[0].total_count) : 0;
 
-      if (term) {
-        const like = `%${term}%`;
-        query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
-      }
+        // Apply additional client-side filters & sort when tag RPC is active
+        if (sectorFilter.trim()) {
+          const sLow = sectorFilter.trim().toLowerCase();
+          contactRows = contactRows.filter((c) => (c.company || '').toLowerCase().includes(sLow));
+        }
+        if (isAdmin && savedByFilter !== 'all') {
+          contactRows = contactRows.filter((c) => c.user_id === savedByFilter);
+        }
+        if (dateFilter !== 'all') {
+          const now = Date.now();
+          let startMs = 0;
+          let endMs = Infinity;
+          if (dateFilter === 'today') {
+            const d = new Date(); d.setHours(0, 0, 0, 0); startMs = d.getTime();
+          } else if (dateFilter === '7days') {
+            startMs = now - 7 * 86400_000;
+          } else if (dateFilter === '30days') {
+            startMs = now - 30 * 86400_000;
+          } else if (dateFilter === 'custom') {
+            if (dateFrom) startMs = new Date(dateFrom).getTime();
+            if (dateTo) endMs = new Date(dateTo + 'T23:59:59').getTime();
+          }
+          contactRows = contactRows.filter((c) => {
+            const tMs = new Date(c.updated_at || c.created_at).getTime();
+            return tMs >= startMs && tMs <= endMs;
+          });
+        }
+        contactRows.sort((a, b) => {
+          if (sortBy === 'az') return (a.name || '').localeCompare(b.name || '');
+          if (sortBy === 'za') return (b.name || '').localeCompare(a.name || '');
+          const tA = new Date(a.updated_at || a.created_at).getTime();
+          const tB = new Date(b.updated_at || b.created_at).getTime();
+          return sortBy === 'oldest' ? tA - tB : tB - tA;
+        });
+      } else {
+        const orderCol = sortBy === 'az' || sortBy === 'za' ? 'name' : 'updated_at';
+        const ascending = sortBy === 'az' || sortBy === 'oldest';
+        let query = supabase
+          .from('contacts')
+          .select('*', { count: 'exact' })
+          .order(orderCol, { ascending })
+          .range(from, to);
 
-      const { data, count: exactCount, error } = await query;
-      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-      if (error) {
-        toast.error(t('toastFailedLoad'));
-        setLoading(false);
-        return;
+        if (term) {
+          const like = `%${term}%`;
+          query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like},company.ilike.${like}`);
+        }
+        if (sectorFilter.trim()) {
+          query = query.ilike('company', `%${sectorFilter.trim()}%`);
+        }
+        if (isAdmin && savedByFilter !== 'all') {
+          query = query.eq('user_id', savedByFilter);
+        }
+        if (dateFilter === 'today') {
+          const d = new Date(); d.setHours(0, 0, 0, 0);
+          query = query.gte('updated_at', d.toISOString());
+        } else if (dateFilter === '7days') {
+          query = query.gte('updated_at', new Date(Date.now() - 7 * 86400_000).toISOString());
+        } else if (dateFilter === '30days') {
+          query = query.gte('updated_at', new Date(Date.now() - 30 * 86400_000).toISOString());
+        } else if (dateFilter === 'custom') {
+          if (dateFrom) query = query.gte('updated_at', new Date(dateFrom).toISOString());
+          if (dateTo) query = query.lte('updated_at', new Date(dateTo + 'T23:59:59').toISOString());
+        }
+
+        const { data, count: exactCount, error } = await query;
+        if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+        if (error) {
+          toast.error(t('toastFailedLoad'));
+          setLoading(false);
+          return;
+        }
+        contactRows = data ?? [];
+        count = exactCount ?? 0;
       }
-      contactRows = data ?? [];
-      count = exactCount ?? 0;
-    }
 
     setTotalCount(count);
 
@@ -458,7 +524,74 @@ export default function ContactsPage() {
 
     setContacts(enriched);
     setLoading(false);
-  }, [supabase, page, search, selectedTagIds, tagsMap, t]);
+  }, [supabase, page, search, selectedTagIds, tagsMap, t, dateFilter, dateFrom, dateTo, sectorFilter, savedByFilter, sortBy, isAdmin]);
+
+  // Load team members for Admin "Saved by Team Member" filter
+  useEffect(() => {
+    if (!isAdmin || teamMembers.length > 0) return;
+    fetch('/api/account/members')
+      .then((r) => r.json())
+      .then((json) => {
+        if (json?.members) setTeamMembers(json.members);
+      })
+      .catch(() => {});
+  }, [isAdmin, teamMembers.length]);
+
+  const handleExportSelectedCsv = () => {
+    const rows = contacts.filter((c) => selected.has(c.id));
+    if (rows.length === 0) return;
+    const esc = (v: string) => `"${(v || '').replace(/"/g, '""')}"`;
+    const header = ['Name', 'Phone', 'Email', 'Company/Sector', 'Tags', 'Modified'].join(',');
+    const body = rows.map((c) =>
+      [
+        esc(c.name || ''),
+        esc(c.phone || ''),
+        esc(c.email || ''),
+        esc(c.company || ''),
+        esc((c.tags || []).map((tg) => tg.name).join('; ')),
+        esc(new Date(c.updated_at || c.created_at).toLocaleString()),
+      ].join(','),
+    );
+    const blob = new Blob([[header, ...body].join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `contacts_selected_${rows.length}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${rows.length} contacts to CSV!`);
+  };
+
+  const handleCreateListFromSelected = async () => {
+    const selectedIds = Array.from(selected);
+    if (selectedIds.length === 0 || !accountId) return;
+    const listName = window.prompt('Enter a name for this Contact List (saved as a reusable tag/group):');
+    if (!listName || !listName.trim()) return;
+    const trimmed = listName.trim();
+    try {
+      const { data: newTag, error: tagErr } = await supabase
+        .from('tags')
+        .insert({
+          name: trimmed,
+          color: '#7c3aed',
+          account_id: accountId,
+          user_id: user?.id,
+        })
+        .select()
+        .single();
+      if (tagErr) throw tagErr;
+      const rows = selectedIds.map((contact_id) => ({ contact_id, tag_id: newTag.id }));
+      const { error: linkErr } = await supabase
+        .from('contact_tags')
+        .upsert(rows, { onConflict: 'contact_id,tag_id' });
+      if (linkErr) throw linkErr;
+      toast.success(`List "${trimmed}" created with ${selectedIds.length} contacts!`);
+      await fetchTags();
+      await fetchContacts();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create list');
+    }
+  };
 
   // Load-once-on-mount-ish data fetches. Each setter inside runs
   // inside an async promise completion (Supabase await), not
@@ -711,6 +844,90 @@ export default function ContactsPage() {
               )}
             </PopoverContent>
           </Popover>
+
+          {/* Filter by Sector / Company */}
+          <Input
+            value={sectorFilter}
+            onChange={(e) => {
+              setSectorFilter(e.target.value);
+              setPage(0);
+            }}
+            placeholder="Filter by sector / company..."
+            className="w-full sm:w-44 bg-card border-border text-foreground placeholder:text-muted-foreground"
+          />
+
+          {/* Filter by Date */}
+          <select
+            value={dateFilter}
+            onChange={(e) => {
+              setDateFilter(e.target.value as typeof dateFilter);
+              setPage(0);
+            }}
+            className="h-9 rounded-md border border-border bg-card px-2.5 text-xs text-foreground outline-none"
+            title="Filter by Date"
+          >
+            <option value="all">Date: All Time</option>
+            <option value="today">Today</option>
+            <option value="7days">Last 7 Days</option>
+            <option value="30days">Last 30 Days</option>
+            <option value="custom">Custom Range...</option>
+          </select>
+
+          {dateFilter === 'custom' && (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
+                className="h-9 rounded-md border border-border bg-card px-2 text-xs text-foreground"
+                title="From Date"
+              />
+              <span className="text-xs text-muted-foreground">to</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
+                className="h-9 rounded-md border border-border bg-card px-2 text-xs text-foreground"
+                title="To Date"
+              />
+            </div>
+          )}
+
+          {/* Filter by Team Member (Admin only) */}
+          {isAdmin && (
+            <select
+              value={savedByFilter}
+              onChange={(e) => {
+                setSavedByFilter(e.target.value);
+                setPage(0);
+              }}
+              className="h-9 rounded-md border border-border bg-card px-2.5 text-xs text-foreground outline-none"
+              title="Filter by Team Member who saved the contact"
+            >
+              <option value="all">Saved by: All Members</option>
+              {teamMembers.map((m) => (
+                <option key={m.user_id} value={m.user_id}>
+                  {m.full_name || m.email}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/* Sort By */}
+          <select
+            value={sortBy}
+            onChange={(e) => {
+              setSortBy(e.target.value as typeof sortBy);
+              setPage(0);
+            }}
+            className="h-9 rounded-md border border-border bg-card px-2.5 text-xs text-foreground outline-none"
+            title="Sort Contacts"
+          >
+            <option value="recent">Sort: Recent - Oldest</option>
+            <option value="oldest">Sort: Oldest - Recent</option>
+            <option value="az">Sort: Name (A - Z)</option>
+            <option value="za">Sort: Name (Z - A)</option>
+          </select>
         </div>
 
         {/* Active tag-filter chips */}
@@ -771,6 +988,59 @@ export default function ContactsPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {/* Actions Dropdown for Selected Contacts */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    size="sm"
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 gap-1.5 text-xs h-8"
+                  />
+                }
+              >
+                <span>Actions ({selected.size})</span>
+                <ChevronDown className="size-3.5" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={() => setBulkBroadcastOpen(true)}>
+                  <Send className="size-3.5 mr-2 text-primary" />
+                  Broadcast
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setBulkBroadcastOpen(true)}>
+                  <Send className="size-3.5 mr-2 text-amber-500" />
+                  Send Template
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setBulkTagOpen(true)}>
+                  <TagIcon className="size-3.5 mr-2 text-primary" />
+                  Label / Tag
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleCreateListFromSelected}>
+                  <ListPlus className="size-3.5 mr-2 text-emerald-500" />
+                  Create List
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportSelectedCsv}>
+                  <Download className="size-3.5 mr-2 text-blue-500" />
+                  Export CSV
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={openBulkAssign}>
+                  <UserPlus className="size-3.5 mr-2" />
+                  Assign Member
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openBulkAddToPipeline()}>
+                  <GitBranch className="size-3.5 mr-2" />
+                  Add to Pipeline
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => setBulkDeleteOpen(true)}
+                >
+                  <Trash2 className="size-3.5 mr-2" />
+                  {t('deleteSelected')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             {/* 1. Label / Tag */}
             <Button
               variant="outline"
@@ -864,7 +1134,7 @@ export default function ContactsPage() {
               <TableHead className="text-muted-foreground hidden md:table-cell">{t('tableColumns.email')}</TableHead>
               <TableHead className="text-muted-foreground hidden lg:table-cell">{t('tableColumns.company')}</TableHead>
               <TableHead className="text-muted-foreground hidden md:table-cell">{t('tableColumns.tags')}</TableHead>
-              <TableHead className="text-muted-foreground hidden lg:table-cell">{t('tableColumns.createdAt')}</TableHead>
+              <TableHead className="text-muted-foreground hidden lg:table-cell">Modified (Date &amp; Time)</TableHead>
               <TableHead className="text-muted-foreground w-12" />
             </TableRow>
           </TableHeader>
@@ -983,11 +1253,13 @@ export default function ContactsPage() {
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="text-muted-foreground text-xs hidden lg:table-cell">
-                    {new Date(contact.created_at).toLocaleDateString('en-US', {
+                  <TableCell className="text-muted-foreground text-xs hidden lg:table-cell whitespace-nowrap">
+                    {new Date(contact.updated_at || contact.created_at).toLocaleString('en-IN', {
                       month: 'short',
                       day: 'numeric',
                       year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
                     })}
                   </TableCell>
                   <TableCell>

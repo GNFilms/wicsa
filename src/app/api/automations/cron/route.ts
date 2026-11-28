@@ -1,5 +1,48 @@
 import { NextResponse } from 'next/server'
 import { drainDuePendingExecutions } from '@/lib/automations/engine'
+import { supabaseAdmin } from '@/lib/flows/admin-client'
+import { sendMessageToConversation } from '@/lib/whatsapp/send-message'
+
+async function drainDueScheduledMessages(): Promise<number> {
+  try {
+    const admin = supabaseAdmin()
+    const nowIso = new Date().toISOString()
+    const { data: due } = await admin
+      .from('scheduled_messages')
+      .select('*')
+      .eq('status', 'pending')
+      .lte('scheduled_for', nowIso)
+      .order('scheduled_for', { ascending: true })
+      .limit(25)
+
+    let sent = 0
+    for (const item of due ?? []) {
+      try {
+        await sendMessageToConversation(admin, item.account_id, {
+          conversationId: item.conversation_id,
+          messageType: item.message_type,
+          contentText: item.content_text ?? undefined,
+          mediaUrl: item.media_url ?? undefined,
+          templateName: item.template_name ?? undefined,
+          templateLanguage: item.template_language ?? undefined,
+        })
+        await admin.from('scheduled_messages').update({ status: 'sent' }).eq('id', item.id)
+        sent++
+      } catch (err) {
+        await admin
+          .from('scheduled_messages')
+          .update({
+            status: 'failed',
+            error_message: err instanceof Error ? err.message : 'Send failed',
+          })
+          .eq('id', item.id)
+      }
+    }
+    return sent
+  } catch {
+    return 0
+  }
+}
 
 declare const process: any
 
@@ -29,8 +72,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const processed = await drainDuePendingExecutions()
-  return NextResponse.json({ ok: true, processed })
+  const [processed, scheduledSent] = await Promise.all([
+    drainDuePendingExecutions(),
+    drainDueScheduledMessages(),
+  ])
+  return NextResponse.json({ ok: true, processed, scheduledSent })
 }
 
 export async function POST(request: Request) {
