@@ -74,7 +74,7 @@ import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
 import { Label } from '@/components/ui/label';
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
 
 interface ContactWithTags extends Contact {
   tags?: Tag[];
@@ -92,6 +92,7 @@ export default function ContactsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [totalCount, setTotalCount] = useState(0);
   // Tag filter — contacts shown must have ANY of these tags (OR).
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
@@ -389,8 +390,8 @@ export default function ContactsPage() {
     // act on rows the user can no longer see.
     setSelected(new Set());
 
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
+    const from = page * pageSize;
+    const to = from + pageSize - 1;
     const term = search.trim();
 
     let contactRows: Contact[];
@@ -404,7 +405,7 @@ export default function ContactsPage() {
         const { data, error } = await supabase.rpc('filter_contacts_by_tags', {
           p_tag_ids: selectedTagIds,
           p_search: term || null,
-          p_limit: PAGE_SIZE,
+          p_limit: pageSize,
           p_offset: from,
         });
         if (seq !== fetchSeq.current) return; // superseded by a newer fetch
@@ -524,7 +525,7 @@ export default function ContactsPage() {
 
     setContacts(enriched);
     setLoading(false);
-  }, [supabase, page, search, selectedTagIds, tagsMap, t, dateFilter, dateFrom, dateTo, sectorFilter, savedByFilter, sortBy, isAdmin]);
+  }, [supabase, page, pageSize, search, selectedTagIds, tagsMap, t, dateFilter, dateFrom, dateTo, sectorFilter, savedByFilter, sortBy, isAdmin]);
 
   // Load team members for Admin "Saved by Team Member" filter
   useEffect(() => {
@@ -698,7 +699,7 @@ export default function ContactsPage() {
     setBulkDeleteOpen(false);
   }
 
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+  const totalPages = Math.ceil(totalCount / pageSize);
   const hasNext = page < totalPages - 1;
   const hasPrev = page > 0;
 
@@ -1343,38 +1344,61 @@ export default function ContactsPage() {
       </div>
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-muted-foreground">
-            {t('showingPagination', {
-              start: page * PAGE_SIZE + 1,
-              end: Math.min((page + 1) * PAGE_SIZE, totalCount),
-              total: totalCount
-            })}
-          </p>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="icon-sm"
-              disabled={!hasPrev}
-              onClick={() => setPage((p) => p - 1)}
-              className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <span className="text-xs text-muted-foreground px-2">
-              {t('pageCount', { page: page + 1, total: totalPages })}
-            </span>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              disabled={!hasNext}
-              onClick={() => setPage((p) => p + 1)}
-              className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
+      {totalCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-muted-foreground">
+              {t('showingPagination', {
+                start: page * pageSize + 1,
+                end: Math.min((page + 1) * pageSize, totalCount),
+                total: totalCount
+              })}
+            </p>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span>Show:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(0);
+                }}
+                className="h-7 rounded-md border border-border bg-card px-2 text-xs text-foreground outline-none"
+                aria-label="Contacts per page"
+              >
+                {PAGE_SIZE_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+              <span>per page</span>
+            </div>
           </div>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="icon-sm"
+                disabled={!hasPrev}
+                onClick={() => setPage((p) => p - 1)}
+                className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <span className="text-xs text-muted-foreground px-2">
+                {t('pageCount', { page: page + 1, total: totalPages })}
+              </span>
+              <Button
+                variant="outline"
+                size="icon-sm"
+                disabled={!hasNext}
+                onClick={() => setPage((p) => p + 1)}
+                className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
