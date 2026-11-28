@@ -1120,13 +1120,17 @@ export default function ContactsPage() {
         <Table>
           <TableHeader>
             <TableRow className="border-border hover:bg-transparent">
-              <TableHead className="w-10">
-                <Checkbox
+              <TableHead className="w-11 min-w-[44px] px-3">
+                <input
+                  type="checkbox"
                   checked={allOnPageSelected}
-                  indeterminate={!allOnPageSelected && someOnPageSelected}
-                  onCheckedChange={toggleSelectAll}
+                  ref={(el) => {
+                    if (el) el.indeterminate = !allOnPageSelected && someOnPageSelected;
+                  }}
+                  onChange={toggleSelectAll}
                   disabled={contacts.length === 0}
                   aria-label={t('selectAllOnPage')}
+                  className="h-4 w-4 shrink-0 cursor-pointer rounded border-2 border-muted-foreground/60 accent-primary align-middle"
                 />
               </TableHead>
               <TableHead className="text-muted-foreground">{t('tableColumns.name')}</TableHead>
@@ -1178,14 +1182,18 @@ export default function ContactsPage() {
               contacts.map((contact) => (
                 <TableRow
                   key={contact.id}
-                  className="border-border hover:bg-muted/50 cursor-pointer"
+                  className={`border-border hover:bg-muted/50 cursor-pointer ${
+                    selected.has(contact.id) ? 'bg-primary/5' : ''
+                  }`}
                   onClick={() => openDetail(contact.id)}
                 >
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <Checkbox
+                  <TableCell className="w-11 min-w-[44px] px-3" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
                       checked={selected.has(contact.id)}
-                      onCheckedChange={() => toggleSelect(contact.id)}
+                      onChange={() => toggleSelect(contact.id)}
                       aria-label={`Select ${contact.name || contact.phone}`}
+                      className="h-4 w-4 shrink-0 cursor-pointer rounded border-2 border-muted-foreground/60 accent-primary align-middle"
                     />
                   </TableCell>
                   <TableCell className="text-foreground font-medium">
